@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ============================================================
@@ -6,9 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // ============================================================
 
 enum BookingStatus {
-  draft,
-  confirmed,
+  booking,
+  pickupPending,
+  pickup,
   active,
+  returnPending,
+  returning,
   completed,
   cancelled,
   noShow,
@@ -74,20 +76,9 @@ class BookingModel {
 
   // ==========================================================
   // RENTAL PERIOD
-  //
-  // IMPORTANT:
-  // Always use DateTime.
-  //
-  // This supports:
-  // - hourly rentals
-  // - same-day rentals
-  // - overnight rentals
-  // - multi-day rentals
-  // - future bookings
   // ==========================================================
 
   final DateTime pickupDateTime;
-
   final DateTime returnDateTime;
 
   // ==========================================================
@@ -95,18 +86,24 @@ class BookingModel {
   // ==========================================================
 
   final String pickupLocation;
-
   final String returnLocation;
 
   // ==========================================================
   // ODOMETER / FUEL
+  //
+  // IMPORTANT:
+  //
+  // These are NOT required during booking creation.
+  //
+  // They are captured during the actual pickup/handover
+  // and return.
   // ==========================================================
 
-  final int startingKm;
+  final int? startingKm;
 
   final int? endingKm;
 
-  final FuelLevel fuelAtPickup;
+  final FuelLevel? fuelAtPickup;
 
   final FuelLevel? fuelAtReturn;
 
@@ -246,10 +243,14 @@ class BookingModel {
     required this.pickupLocation,
     required this.returnLocation,
 
-    required this.startingKm,
+    // --------------------------------------------------------
+    // PICKUP / RETURN INSPECTION
+    // --------------------------------------------------------
+
+    this.startingKm,
     this.endingKm,
 
-    required this.fuelAtPickup,
+    this.fuelAtPickup,
     this.fuelAtReturn,
 
     required this.dailyRate,
@@ -310,19 +311,38 @@ class BookingModel {
     this.cancelledAt,
   });
 
-  // ==========================================================
+  // ============================================================
   // STATUS FROM STRING
-  // ==========================================================
+  //
+  // Firestore:
+  // "return"
+  //
+  // Dart:
+  // BookingStatus.returning
+  // ============================================================
 
   static BookingStatus _statusFromString(
     String? value,
   ) {
     switch (value) {
-      case 'confirmed':
-        return BookingStatus.confirmed;
+      case 'booking':
+        return BookingStatus.booking;
+
+      case 'pickupPending':
+        return BookingStatus.pickupPending;
+
+      case 'pickup':
+        return BookingStatus.pickup;
 
       case 'active':
         return BookingStatus.active;
+
+      case 'returnPending':
+        return BookingStatus.returnPending;
+
+      case 'return':
+      case 'returning':
+        return BookingStatus.returning;
 
       case 'completed':
         return BookingStatus.completed;
@@ -333,28 +353,41 @@ class BookingModel {
       case 'noShow':
         return BookingStatus.noShow;
 
-      case 'draft':
       default:
-        return BookingStatus.draft;
+        return BookingStatus.booking;
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // STATUS TO STRING
-  // ==========================================================
+  //
+  // IMPORTANT:
+  //
+  // We keep "return" in Firestore so existing data remains
+  // compatible.
+  // ============================================================
 
   static String statusToString(
     BookingStatus status,
   ) {
     switch (status) {
-      case BookingStatus.draft:
-        return 'draft';
+      case BookingStatus.booking:
+        return 'booking';
 
-      case BookingStatus.confirmed:
-        return 'confirmed';
+      case BookingStatus.pickupPending:
+        return 'pickupPending';
+
+      case BookingStatus.pickup:
+        return 'pickup';
 
       case BookingStatus.active:
         return 'active';
+
+      case BookingStatus.returnPending:
+        return 'returnPending';
+
+      case BookingStatus.returning:
+        return 'return';
 
       case BookingStatus.completed:
         return 'completed';
@@ -367,9 +400,9 @@ class BookingModel {
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // PAYMENT STATUS FROM STRING
-  // ==========================================================
+  // ============================================================
 
   static PaymentStatus _paymentStatusFromString(
     String? value,
@@ -390,9 +423,9 @@ class BookingModel {
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // PAYMENT STATUS TO STRING
-  // ==========================================================
+  // ============================================================
 
   static String paymentStatusToString(
     PaymentStatus status,
@@ -412,11 +445,11 @@ class BookingModel {
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // FUEL FROM STRING
-  // ==========================================================
+  // ============================================================
 
-  static FuelLevel _fuelFromString(
+  static FuelLevel? _fuelFromString(
     String? value,
   ) {
     switch (value) {
@@ -433,14 +466,16 @@ class BookingModel {
         return FuelLevel.full;
 
       case 'empty':
-      default:
         return FuelLevel.empty;
+
+      default:
+        return null;
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // FUEL TO STRING
-  // ==========================================================
+  // ============================================================
 
   static String fuelToString(
     FuelLevel fuel,
@@ -463,9 +498,9 @@ class BookingModel {
     }
   }
 
-  // ==========================================================
+  // ============================================================
   // DATE HELPER
-  // ==========================================================
+  // ============================================================
 
   static DateTime? _timestampToDate(
     dynamic value,
@@ -485,9 +520,9 @@ class BookingModel {
     return null;
   }
 
-  // ==========================================================
+  // ============================================================
   // INT HELPER
-  // ==========================================================
+  // ============================================================
 
   static int _toInt(
     dynamic value,
@@ -506,9 +541,9 @@ class BookingModel {
         0;
   }
 
-  // ==========================================================
+  // ============================================================
   // DOUBLE HELPER
-  // ==========================================================
+  // ============================================================
 
   static double _toDouble(
     dynamic value,
@@ -523,13 +558,12 @@ class BookingModel {
         0;
   }
 
-  // ==========================================================
+  // ============================================================
   // FROM FIRESTORE
-  // ==========================================================
+  // ============================================================
 
   factory BookingModel.fromFirestore(
-    DocumentSnapshot<
-        Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data =
         doc.data() ?? {};
@@ -538,7 +572,8 @@ class BookingModel {
         DateTime.now();
 
     return BookingModel(
-      id: doc.id,
+      id:
+          doc.id,
 
       businessId:
           data['businessId'] ?? '',
@@ -562,39 +597,39 @@ class BookingModel {
           data['vehicleId'] ?? '',
 
       vehicleRegistrationNumber:
-          data[
-                'vehicleRegistrationNumber'] ??
-              '',
+          data['vehicleRegistrationNumber'] ?? '',
 
       vehicleName:
           data['vehicleName'] ?? '',
 
       pickupDateTime:
           _timestampToDate(
-                data[
-                    'pickupDateTime'],
+                data['pickupDateTime'],
               ) ??
               now,
 
       returnDateTime:
           _timestampToDate(
-                data[
-                    'returnDateTime'],
+                data['returnDateTime'],
               ) ??
               now,
 
       pickupLocation:
-          data['pickupLocation'] ??
-              '',
+          data['pickupLocation'] ?? '',
 
       returnLocation:
-          data['returnLocation'] ??
-              '',
+          data['returnLocation'] ?? '',
+
+      // --------------------------------------------------------
+      // OPTIONAL PICKUP DATA
+      // --------------------------------------------------------
 
       startingKm:
-          _toInt(
-        data['startingKm'],
-      ),
+          data['startingKm'] == null
+              ? null
+              : _toInt(
+                  data['startingKm'],
+                ),
 
       endingKm:
           data['endingKm'] == null
@@ -605,22 +640,18 @@ class BookingModel {
 
       fuelAtPickup:
           _fuelFromString(
-        data['fuelAtPickup']
-            ?.toString(),
-      ),
+            data['fuelAtPickup']?.toString(),
+          ),
 
       fuelAtReturn:
-          data['fuelAtReturn'] == null
-              ? null
-              : _fuelFromString(
-                  data['fuelAtReturn']
-                      ?.toString(),
-                ),
+          _fuelFromString(
+            data['fuelAtReturn']?.toString(),
+          ),
 
       dailyRate:
           _toDouble(
-        data['dailyRate'],
-      ),
+            data['dailyRate'],
+          ),
 
       hourlyRate:
           data['hourlyRate'] == null
@@ -631,110 +662,103 @@ class BookingModel {
 
       rentalDays:
           _toInt(
-        data['rentalDays'],
-      ),
+            data['rentalDays'],
+          ),
 
       rentalHours:
           _toInt(
-        data['rentalHours'],
-      ),
+            data['rentalHours'],
+          ),
 
       baseRentalAmount:
           _toDouble(
-        data['baseRentalAmount'],
-      ),
+            data['baseRentalAmount'],
+          ),
 
       securityDeposit:
           _toDouble(
-        data['securityDeposit'],
-      ),
+            data['securityDeposit'],
+          ),
 
       extraKmCharge:
           _toDouble(
-        data['extraKmCharge'],
-      ),
+            data['extraKmCharge'],
+          ),
 
       fuelCharge:
           _toDouble(
-        data['fuelCharge'],
-      ),
+            data['fuelCharge'],
+          ),
 
       lateReturnCharge:
           _toDouble(
-        data['lateReturnCharge'],
-      ),
+            data['lateReturnCharge'],
+          ),
 
       damageCharge:
           _toDouble(
-        data['damageCharge'],
-      ),
+            data['damageCharge'],
+          ),
 
       otherCharges:
           _toDouble(
-        data['otherCharges'],
-      ),
+            data['otherCharges'],
+          ),
 
       discount:
           _toDouble(
-        data['discount'],
-      ),
+            data['discount'],
+          ),
 
       tax:
           _toDouble(
-        data['tax'],
-      ),
+            data['tax'],
+          ),
 
       totalAmount:
           _toDouble(
-        data['totalAmount'],
-      ),
+            data['totalAmount'],
+          ),
 
       paidAmount:
           _toDouble(
-        data['paidAmount'],
-      ),
+            data['paidAmount'],
+          ),
 
       pendingAmount:
           _toDouble(
-        data['pendingAmount'],
-      ),
+            data['pendingAmount'],
+          ),
 
       status:
           _statusFromString(
-        data['status']
-            ?.toString(),
-      ),
+            data['status']?.toString(),
+          ),
 
       paymentStatus:
           _paymentStatusFromString(
-        data['paymentStatus']
-            ?.toString(),
-      ),
+            data['paymentStatus']?.toString(),
+          ),
 
       agreementNumber:
-          data['agreementNumber'] ??
-              '',
+          data['agreementNumber'] ?? '',
 
       termsAccepted:
-          data['termsAccepted'] ??
-              false,
+          data['termsAccepted'] ?? false,
 
       customerSignatureUrl:
-          data[
-              'customerSignatureUrl'],
+          data['customerSignatureUrl'],
 
       staffSignatureUrl:
-          data[
-              'staffSignatureUrl'],
+          data['staffSignatureUrl'],
 
       licenseNumber:
           data['licenseNumber'],
 
       licenseExpiryDate:
           _timestampToDate(
-        data[
-            'licenseExpiryDate'],
-      ),
+            data['licenseExpiryDate'],
+          ),
 
       licenseImageUrl:
           data['licenseImageUrl'],
@@ -783,29 +807,29 @@ class BookingModel {
 
       confirmedAt:
           _timestampToDate(
-        data['confirmedAt'],
-      ),
+            data['confirmedAt'],
+          ),
 
       startedAt:
           _timestampToDate(
-        data['startedAt'],
-      ),
+            data['startedAt'],
+          ),
 
       completedAt:
           _timestampToDate(
-        data['completedAt'],
-      ),
+            data['completedAt'],
+          ),
 
       cancelledAt:
           _timestampToDate(
-        data['cancelledAt'],
-      ),
+            data['cancelledAt'],
+          ),
     );
   }
 
-  // ==========================================================
+  // ============================================================
   // TO FIRESTORE
-  // ==========================================================
+  // ============================================================
 
   Map<String, dynamic> toFirestore() {
     return {
@@ -852,6 +876,13 @@ class BookingModel {
       'returnLocation':
           returnLocation,
 
+      // --------------------------------------------------------
+      // PICKUP / RETURN DATA
+      //
+      // Null at booking creation.
+      // Filled during pickup / return.
+      // --------------------------------------------------------
+
       'startingKm':
           startingKm,
 
@@ -859,9 +890,11 @@ class BookingModel {
           endingKm,
 
       'fuelAtPickup':
-          fuelToString(
-        fuelAtPickup,
-      ),
+          fuelAtPickup == null
+              ? null
+              : fuelToString(
+                  fuelAtPickup!,
+                ),
 
       'fuelAtReturn':
           fuelAtReturn == null
@@ -1023,47 +1056,36 @@ class BookingModel {
     };
   }
 
-  // ==========================================================
+  // ============================================================
   // AVAILABILITY OVERLAP
-  //
-  // Returns TRUE when this booking overlaps the requested
-  // rental period.
-  //
-  // Example:
-  //
-  // Existing: 10:00 → 18:00
-  // Requested: 14:00 → 20:00
-  //
-  // TRUE = conflict
-  // ==========================================================
+  // ============================================================
 
   bool overlaps(
     DateTime requestedPickup,
     DateTime requestedReturn,
   ) {
-    return pickupDateTime
-            .isBefore(requestedReturn) &&
-        returnDateTime
-            .isAfter(requestedPickup);
+    return pickupDateTime.isBefore(
+          requestedReturn,
+        ) &&
+        returnDateTime.isAfter(
+          requestedPickup,
+        );
   }
 
-  // ==========================================================
+  // ============================================================
   // SHOULD BLOCK AVAILABILITY
-  //
-  // Cancelled and no-show bookings do not block the vehicle.
-  // Draft bookings also do not block until confirmed.
-  // ==========================================================
+  // ============================================================
 
   bool get blocksAvailability {
-    return status ==
-            BookingStatus.confirmed ||
-        status ==
-            BookingStatus.active;
+    return status !=
+            BookingStatus.cancelled &&
+        status !=
+            BookingStatus.noShow;
   }
 
-  // ==========================================================
+  // ============================================================
   // COPY WITH
-  // ==========================================================
+  // ============================================================
 
   BookingModel copyWith({
     String? businessId,
@@ -1380,4 +1402,3 @@ class BookingModel {
     );
   }
 }
-

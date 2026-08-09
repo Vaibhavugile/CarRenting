@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../models/vehicle_model.dart';
 import '../../services/booking_service.dart';
-
+import 'availability_screen.dart';
 class BranchAvailabilityScreen extends StatefulWidget {
   const BranchAvailabilityScreen({
     super.key,
@@ -1129,27 +1129,32 @@ class _BranchAvailabilityScreenState
                 ? OutlinedButton.icon(
                     onPressed: () {
                       setState(() {
-                        _selectedVehicle =
-                            null;
+                        _selectedVehicle = null;
                       });
                     },
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      tapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                    ),
                     icon: const Icon(
                       Icons.check_rounded,
                       size: 17,
                     ),
-                    label:
-                        const Text(
+                    label: const Text(
                       'Vehicle Selected',
                     ),
                   )
                 : ElevatedButton(
                     onPressed: () {
-                      _selectVehicle(
-                        vehicle,
-                      );
+                      _selectVehicle(vehicle);
                     },
-                    child:
-                        const Text(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      tapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
                       'Select Vehicle',
                     ),
                   ),
@@ -1315,8 +1320,10 @@ class _BranchAvailabilityScreenState
         _selectedVehicle!;
 
     return SafeArea(
-      child: Container(
-        padding:
+      child: SizedBox(
+        width: double.infinity,
+        child: Container(
+          padding:
             const EdgeInsets.fromLTRB(
           AppSpacing.lg,
           AppSpacing.md,
@@ -1394,24 +1401,25 @@ class _BranchAvailabilityScreenState
 
             SizedBox(
               height: 46,
-              child:
-                  ElevatedButton(
-                onPressed:
-                    _continueWithVehicle,
-                child:
-                    const Row(
-                  mainAxisSize:
-                      MainAxisSize.min,
+              child: ElevatedButton(
+                onPressed: _continueWithVehicle,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(0, 46),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                  ),
+                  tapTargetSize:
+                      MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'Continue',
-                    ),
+                    Text('Continue'),
                     SizedBox(
                       width: 7,
                     ),
                     Icon(
-                      Icons
-                          .arrow_forward_rounded,
+                      Icons.arrow_forward_rounded,
                       size: 17,
                     ),
                   ],
@@ -1420,6 +1428,7 @@ class _BranchAvailabilityScreenState
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1444,17 +1453,47 @@ class _BranchAvailabilityScreenState
   // ============================================================
 
   void _continueWithVehicle() {
-    final vehicle =
-        _selectedVehicle;
+  final vehicle = _selectedVehicle;
 
-    if (vehicle == null) {
-      return;
-    }
-
-    _showMessage(
-      '${_vehicleName(vehicle)} selected.',
-    );
+  if (vehicle == null) {
+    return;
   }
+
+  if (_pickupDate == null ||
+      _returnDate == null) {
+    _showError(
+      'Please select pickup and return dates.',
+    );
+    return;
+  }
+
+  final pickupDateTime = _combineDateAndTime(
+    _pickupDate!,
+    _pickupTime,
+  );
+
+  final returnDateTime = _combineDateAndTime(
+    _returnDate!,
+    _returnTime,
+  );
+
+  if (!returnDateTime.isAfter(pickupDateTime)) {
+    _showError(
+      'Return time must be after pickup time.',
+    );
+    return;
+  }
+
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => AvailabilityScreen(
+        vehicle: vehicle,
+        initialPickupDateTime: pickupDateTime,
+        initialReturnDateTime: returnDateTime,
+      ),
+    ),
+  );
+}
 
   // ============================================================
   // CHECK BRANCH AVAILABILITY

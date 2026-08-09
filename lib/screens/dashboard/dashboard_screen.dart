@@ -9,6 +9,7 @@ import '../vehicles/add_vehicle_screen.dart';
 import '../vehicles/vehicle_list_screen.dart';
 import '../bookings/availability_screen.dart';
 import '../bookings/branch_availability_screen.dart';
+import '../bookings/bookings_screen.dart';
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
     super.key,
@@ -762,68 +763,134 @@ Widget _buildVehicleStats() {
   // ============================================================
 
   Widget _buildBookingStats() {
-    final stats = _stats!;
+  final stats = _stats!;
 
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-
-      children: [
-        _title(
-          'Bookings',
-          'Rental activity',
-        ),
-
-        const SizedBox(
-          height: AppSpacing.lg,
-        ),
-
-        Row(
-          children: [
-            Expanded(
-              child: _statCard(
-                icon:
-                    Icons.today_rounded,
-                title: 'Today',
-                value:
-                    '${stats.todayBookings}',
-              ),
-            ),
-
-            const SizedBox(
-              width: AppSpacing.md,
-            ),
-
-            Expanded(
-              child: _statCard(
-                icon:
-                    Icons
-                        .directions_car_filled_rounded,
-                title: 'Active',
-                value:
-                    '${stats.activeBookings}',
-              ),
-            ),
-
-            const SizedBox(
-              width: AppSpacing.md,
-            ),
-
-            Expanded(
-              child: _statCard(
-                icon:
-                    Icons
-                        .event_available_rounded,
-                title: 'Upcoming',
-                value:
-                    '${stats.upcomingBookings}',
-              ),
-            ),
-          ],
-        ),
-      ],
+  Future<void> openBookings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const BookingsScreen(),
+      ),
     );
+
+    if (!mounted) return;
+
+    await _loadDashboard();
   }
+
+  return Column(
+    crossAxisAlignment:
+        CrossAxisAlignment.start,
+    children: [
+      Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius:
+              BorderRadius.circular(
+            AppRadius.md,
+          ),
+          onTap: openBookings,
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(
+              vertical: 4,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _title(
+                    'Bookings',
+                    'Rental activity',
+                  ),
+                ),
+
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration:
+                      BoxDecoration(
+                    color:
+                        AppColors.primary
+                            .withValues(
+                      alpha: 0.08,
+                    ),
+                    borderRadius:
+                        BorderRadius.circular(
+                      AppRadius.md,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons
+                        .arrow_forward_ios_rounded,
+                    size: 14,
+                    color:
+                        AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+
+      const SizedBox(
+        height: AppSpacing.lg,
+      ),
+
+      Row(
+        children: [
+          Expanded(
+            child: _statCard(
+              icon:
+                  Icons.today_rounded,
+              title:
+                  'Today',
+              value:
+                  '${stats.todayBookings}',
+              onTap:
+                  openBookings,
+            ),
+          ),
+
+          const SizedBox(
+            width: AppSpacing.md,
+          ),
+
+          Expanded(
+            child: _statCard(
+              icon:
+                  Icons
+                      .directions_car_filled_rounded,
+              title:
+                  'Active',
+              value:
+                  '${stats.activeBookings}',
+              onTap:
+                  openBookings,
+            ),
+          ),
+
+          const SizedBox(
+            width: AppSpacing.md,
+          ),
+
+          Expanded(
+            child: _statCard(
+              icon:
+                  Icons
+                      .event_available_rounded,
+              title:
+                  'Upcoming',
+              value:
+                  '${stats.upcomingBookings}',
+              onTap:
+                  openBookings,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
   // ============================================================
   // QUICK ACTIONS
@@ -952,29 +1019,44 @@ Widget _buildQuickActions() {
       // ========================================================
       // PAYMENT
       // ========================================================
-
-      Row(
-        children: [
-          Expanded(
-            child: _actionCard(
-              icon:
-                  Icons.payments_outlined,
-              title: 'Payment',
-              onTap: () {
-                // Payment screen will be connected next.
-              },
+Row(
+  children: [
+    Expanded(
+      child: _actionCard(
+        icon:
+            Icons.receipt_long_outlined,
+        title: 'Bookings',
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  const BookingsScreen(),
             ),
-          ),
+          );
 
-          const SizedBox(
-            width: AppSpacing.md,
-          ),
+          if (!mounted) return;
 
-          const Expanded(
-            child: SizedBox(),
-          ),
-        ],
+          await _loadDashboard();
+        },
       ),
+    ),
+
+    const SizedBox(
+      width: AppSpacing.md,
+    ),
+
+    Expanded(
+      child: _actionCard(
+        icon:
+            Icons.payments_outlined,
+        title: 'Payment',
+        onTap: () {
+          // Payment screen will be connected next.
+        },
+      ),
+    ),
+  ],
+),
     ],
   );
 }

@@ -5,13 +5,23 @@ import '../../models/booking_model.dart';
 import '../../models/vehicle_model.dart';
 import '../../services/booking_service.dart';
 import '../../app/theme.dart';
-
+import 'create_booking_screen.dart';
 class AvailabilityScreen extends StatefulWidget {
   final VehicleModel vehicle;
+
+  // ============================================================
+  // INITIAL RENTAL PERIOD
+  // Passed from BranchAvailabilityScreen
+  // ============================================================
+
+  final DateTime? initialPickupDateTime;
+  final DateTime? initialReturnDateTime;
 
   const AvailabilityScreen({
     super.key,
     required this.vehicle,
+    this.initialPickupDateTime,
+    this.initialReturnDateTime,
   });
 
   @override
@@ -67,22 +77,67 @@ class _AvailabilityScreenState
   // ============================================================
 
   @override
-  void initState() {
-    super.initState();
+void initState() {
+  super.initState();
 
-    final now =
-        DateTime.now();
+  final now = DateTime.now();
 
-    _visibleMonth =
-        DateTime(
-      now.year,
-      now.month,
-      1,
+  // ============================================================
+  // VISIBLE CALENDAR MONTH
+  // ============================================================
+
+  final initialPickup =
+      widget.initialPickupDateTime;
+
+  _visibleMonth = DateTime(
+    initialPickup?.year ?? now.year,
+    initialPickup?.month ?? now.month,
+    1,
+  );
+
+  // ============================================================
+  // INITIAL PICKUP
+  // ============================================================
+
+  if (initialPickup != null) {
+    _pickupDate = DateTime(
+      initialPickup.year,
+      initialPickup.month,
+      initialPickup.day,
     );
 
-    _loadMonthBookings();
+    _pickupTime = TimeOfDay(
+      hour: initialPickup.hour,
+      minute: initialPickup.minute,
+    );
   }
 
+  // ============================================================
+  // INITIAL RETURN
+  // ============================================================
+
+  final initialReturn =
+      widget.initialReturnDateTime;
+
+  if (initialReturn != null) {
+    _returnDate = DateTime(
+      initialReturn.year,
+      initialReturn.month,
+      initialReturn.day,
+    );
+
+    _returnTime = TimeOfDay(
+      hour: initialReturn.hour,
+      minute: initialReturn.minute,
+    );
+  }
+
+  // ============================================================
+  // LOAD BOOKINGS
+  // ============================================================
+
+  _loadMonthBookings();
+}
   // ============================================================
   // LOAD BOOKINGS FOR CURRENT MONTH
   // ============================================================
@@ -183,69 +238,58 @@ class _AvailabilityScreenState
         ],
       ),
 
-      body:
-          SafeArea(
-        child:
-            CustomScrollView(
-          physics:
-              const BouncingScrollPhysics(),
-
-          slivers: [
-            SliverPadding(
-              padding:
-                  const EdgeInsets.fromLTRB(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xl,
                 AppSpacing.lg,
                 AppSpacing.xl,
                 120,
               ),
-
-              sliver:
-                  SliverList(
-                delegate:
-                    SliverChildListDelegate(
-                  [
+              child: SizedBox(
+                width: constraints.maxWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     _buildVehicleHeader(),
 
                     const SizedBox(
-                      height:
-                          AppSpacing.xl,
+                      height: AppSpacing.xl,
                     ),
 
                     _buildLegend(),
 
                     const SizedBox(
-                      height:
-                          AppSpacing.lg,
+                      height: AppSpacing.lg,
                     ),
 
                     _buildCalendar(),
 
                     const SizedBox(
-                      height:
-                          AppSpacing.xl,
+                      height: AppSpacing.xl,
                     ),
 
                     _buildRentalPeriod(),
 
                     const SizedBox(
-                      height:
-                          AppSpacing.xl,
+                      height: AppSpacing.xl,
                     ),
 
                     _buildAvailabilityResult(),
 
                     const SizedBox(
-                      height:
-                          AppSpacing.xl,
+                      height: AppSpacing.xl,
                     ),
 
                     _buildCheckButton(),
                   ],
                 ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -284,6 +328,7 @@ class _AvailabilityScreenState
 
       child:
           Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 56,
@@ -314,25 +359,21 @@ class _AvailabilityScreenState
                           AppRadius.lg,
                         ),
 
-                        child:
-                            Image.network(
-                          vehicle.imageUrl!,
+                        child: Image.network(
+                          vehicle.imageUrl!.trim(),
                           width: 56,
                           height: 56,
-                          fit:
-                              BoxFit.cover,
-
-                          errorBuilder:
-                              (
+                          fit: BoxFit.cover,
+                          errorBuilder: (
                             context,
                             error,
                             stackTrace,
                           ) {
-                            return const Icon(
-                              Icons
-                                  .directions_car_rounded,
-                              color:
-                                  AppColors.primary,
+                            return const Center(
+                              child: Icon(
+                                Icons.directions_car_rounded,
+                                color: AppColors.primary,
+                              ),
                             );
                           },
                         ),
@@ -471,37 +512,21 @@ class _AvailabilityScreenState
   // ============================================================
 
   Widget _buildLegend() {
-    return Row(
+    return Wrap(
+      spacing: AppSpacing.lg,
+      runSpacing: AppSpacing.sm,
       children: [
         _legendItem(
-          color:
-              AppColors.success,
-          label:
-              'Available',
+          color: AppColors.success,
+          label: 'Available',
         ),
-
-        const SizedBox(
-          width:
-              AppSpacing.lg,
-        ),
-
         _legendItem(
-          color:
-              AppColors.danger,
-          label:
-              'Booked',
+          color: AppColors.danger,
+          label: 'Booked',
         ),
-
-        const SizedBox(
-          width:
-              AppSpacing.lg,
-        ),
-
         _legendItem(
-          color:
-              AppColors.warning,
-          label:
-              'Selected',
+          color: AppColors.warning,
+          label: 'Selected',
         ),
       ],
     );
@@ -1156,45 +1181,60 @@ class _AvailabilityScreenState
                 AppSpacing.lg,
           ),
 
-          Row(
-            children: [
-              Expanded(
-                child:
-                    _dateTimeField(
-                  label:
-                      'Pickup',
-                  date:
-                      _pickupDate,
-                  time:
-                      _pickupTime,
-                  onDateTap:
-                      _selectPickupDate,
-                  onTimeTap:
-                      _selectPickupTime,
-                ),
-              ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 420;
 
-              const SizedBox(
-                width:
-                    AppSpacing.md,
-              ),
-
-              Expanded(
-                child:
+              if (compact) {
+                return Column(
+                  children: [
                     _dateTimeField(
-                  label:
-                      'Return',
-                  date:
-                      _returnDate,
-                  time:
-                      _returnTime,
-                  onDateTap:
-                      _selectReturnDate,
-                  onTimeTap:
-                      _selectReturnTime,
-                ),
-              ),
-            ],
+                      label: 'Pickup',
+                      date: _pickupDate,
+                      time: _pickupTime,
+                      onDateTap: _selectPickupDate,
+                      onTimeTap: _selectPickupTime,
+                    ),
+                    const SizedBox(
+                      height: AppSpacing.md,
+                    ),
+                    _dateTimeField(
+                      label: 'Return',
+                      date: _returnDate,
+                      time: _returnTime,
+                      onDateTap: _selectReturnDate,
+                      onTimeTap: _selectReturnTime,
+                    ),
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(
+                    child: _dateTimeField(
+                      label: 'Pickup',
+                      date: _pickupDate,
+                      time: _pickupTime,
+                      onDateTap: _selectPickupDate,
+                      onTimeTap: _selectPickupTime,
+                    ),
+                  ),
+                  const SizedBox(
+                    width: AppSpacing.md,
+                  ),
+                  Expanded(
+                    child: _dateTimeField(
+                      label: 'Return',
+                      date: _returnDate,
+                      time: _returnTime,
+                      onDateTap: _selectReturnDate,
+                      onTimeTap: _selectReturnTime,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1367,17 +1407,14 @@ class _AvailabilityScreenState
     }
 
     if (result.isAvailable) {
-      return _resultCard(
-        success:
-            true,
-
-        title:
-            'Vehicle Available',
-
-        message:
-            'This vehicle is available for the selected rental period.',
-      );
-    }
+  return _resultCard(
+    success: true,
+    title: 'Vehicle Available',
+    message:
+        'This vehicle is available for the selected rental period.',
+    showCreateBooking: true,
+  );
+}
 
     final conflict =
         result.firstConflict;
@@ -1399,51 +1436,71 @@ class _AvailabilityScreenState
   // ============================================================
   // RESULT CARD
   // ============================================================
+Widget _resultCard({
+  required bool success,
+  required String title,
+  required String message,
+  bool showCreateBooking = false,
+}) {
+  final color =
+      success
+          ? AppColors.success
+          : AppColors.danger;
 
-  Widget _resultCard({
-    required bool success,
-    required String title,
-    required String message,
-  }) {
-    final color =
-        success
-            ? AppColors.success
-            : AppColors.danger;
+  return Container(
+    padding:
+        const EdgeInsets.all(
+      AppSpacing.lg,
+    ),
 
-    return Container(
-      padding:
-          const EdgeInsets.all(
-        AppSpacing.lg,
+    decoration:
+        BoxDecoration(
+      color:
+          color.withValues(
+        alpha: 0.07,
       ),
 
-      decoration:
-          BoxDecoration(
+      borderRadius:
+          BorderRadius.circular(
+        AppRadius.xl,
+      ),
+
+      border:
+          Border.all(
         color:
             color.withValues(
-          alpha: 0.07,
-        ),
-
-        borderRadius:
-            BorderRadius.circular(
-          AppRadius.xl,
-        ),
-
-        border:
-            Border.all(
-          color:
-              color.withValues(
-            alpha: 0.15,
-          ),
+          alpha: 0.15,
         ),
       ),
+    ),
 
-      child:
-          Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+    child:
+        Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
 
-        children: [
-          Icon(
+      children: [
+        // ======================================================
+        // STATUS ICON
+        // ======================================================
+
+        Container(
+          width: 42,
+          height: 42,
+
+          decoration:
+              BoxDecoration(
+            color:
+                color.withValues(
+              alpha: 0.10,
+            ),
+
+            shape:
+                BoxShape.circle,
+          ),
+
+          child:
+              Icon(
             success
                 ? Icons
                     .check_circle_rounded
@@ -1455,57 +1512,112 @@ class _AvailabilityScreenState
 
             size: 24,
           ),
+        ),
 
-          const SizedBox(
-            width:
-                AppSpacing.md,
-          ),
+        const SizedBox(
+          width:
+              AppSpacing.md,
+        ),
 
-          Expanded(
-            child:
-                Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+        // ======================================================
+        // CONTENT
+        // ======================================================
 
-              children: [
-                Text(
-                  title,
+        Expanded(
+          child:
+              Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
 
-                  style:
-                      TextStyle(
-                    color:
-                        color,
-                    fontSize:
-                        14,
-                    fontWeight:
-                        FontWeight.w800,
-                  ),
+            children: [
+              Text(
+                title,
+
+                style:
+                    TextStyle(
+                  color:
+                      color,
+
+                  fontSize:
+                      14,
+
+                  fontWeight:
+                      FontWeight.w800,
                 ),
+              ),
 
+              const SizedBox(
+                height: 5,
+              ),
+
+              Text(
+                message,
+
+                style:
+                    const TextStyle(
+                  color:
+                      AppColors.textSecondary,
+
+                  fontSize:
+                      11,
+
+                  height:
+                      1.4,
+                ),
+              ),
+
+              // ==================================================
+              // CREATE BOOKING
+              // ==================================================
+
+              if (showCreateBooking) ...[
                 const SizedBox(
-                  height: 4,
+                  height:
+                      AppSpacing.lg,
                 ),
 
-                Text(
-                  message,
+                SizedBox(
+                  width:
+                      double.infinity,
 
-                  style:
-                      const TextStyle(
-                    color:
-                        AppColors.textSecondary,
-                    fontSize:
-                        11,
-                    height:
-                        1.4,
+                  height: 48,
+
+                  child:
+                      ElevatedButton.icon(
+                    onPressed:
+                        _createBooking,
+
+                    icon:
+                        const Icon(
+                      Icons
+                          .add_circle_outline_rounded,
+
+                      size: 18,
+                    ),
+
+                    label:
+                        const Text(
+                      'Create Booking',
+
+                      style:
+                          TextStyle(
+                        fontSize:
+                            13,
+
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   // ============================================================
   // CHECK BUTTON
@@ -1562,10 +1674,19 @@ class _AvailabilityScreenState
   // CHECK AVAILABILITY
   // ============================================================
 
-  Future<void>
-      _checkAvailability() async {
-    if (_pickupDate == null ||
-        _returnDate == null) {
+  Future<void> _checkAvailability() async {
+    if (_pickupDate == null || _returnDate == null) {
+      _showError(
+        'Please select pickup and return dates.',
+      );
+      return;
+    }
+
+    if (!vehicle.isActive ||
+        vehicle.status != VehicleStatus.available) {
+      _showError(
+        'This vehicle is currently unavailable for booking.',
+      );
       return;
     }
 
@@ -1627,12 +1748,61 @@ class _AvailabilityScreenState
     } finally {
       if (mounted) {
         setState(() {
-          _isChecking =
-              false;
+          _isChecking = false;
         });
       }
     }
   }
+
+  void _createBooking() {
+  final availability = _availability;
+
+  if (availability == null ||
+      !availability.isAvailable) {
+    _showError(
+      'Please check vehicle availability first.',
+    );
+    return;
+  }
+
+  if (_pickupDate == null ||
+      _returnDate == null) {
+    _showError(
+      'Please select pickup and return dates.',
+    );
+    return;
+  }
+
+  final pickup =
+      _combineDateAndTime(
+    _pickupDate!,
+    _pickupTime,
+  );
+
+  final returnTime =
+      _combineDateAndTime(
+    _returnDate!,
+    _returnTime,
+  );
+
+  if (!returnTime.isAfter(pickup)) {
+    _showError(
+      'Return time must be after pickup time.',
+    );
+    return;
+  }
+
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) =>
+          CreateBookingScreen(
+        vehicle: widget.vehicle,
+        pickupDateTime: pickup,
+        returnDateTime: returnTime,
+      ),
+    ),
+  );
+}
 
   // ============================================================
   // SELECT DATE
@@ -1704,21 +1874,14 @@ class _AvailabilityScreenState
       onSelected:
           (date) {
         setState(() {
-          _pickupDate =
-              date;
+          _pickupDate = date;
 
-          if (_returnDate !=
-                  null &&
-              _returnDate!
-                  .isBefore(
-                date,
-              )) {
-            _returnDate =
-                null;
+          if (_returnDate != null &&
+              _returnDate!.isBefore(date)) {
+            _returnDate = null;
           }
 
-          _availability =
-              null;
+          _availability = null;
         });
       },
     );
@@ -2165,22 +2328,28 @@ class _AvailabilityScreenState
   void _showError(
     String message,
   ) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(
-      SnackBar(
-        behavior:
-            SnackBarBehavior.floating,
+    final cleanMessage = message
+        .replaceFirst('Exception: ', '')
+        .trim();
 
-        content:
-            Text(
-          message.replaceFirst(
-            'Exception: ',
-            '',
+    if (cleanMessage.isEmpty) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 3),
+          content: Text(
+            cleanMessage,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-      ),
-    );
+      );
   }
 }
 

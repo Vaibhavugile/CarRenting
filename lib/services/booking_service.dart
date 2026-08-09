@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -72,6 +71,32 @@ class BookingService {
   }
 
   // ============================================================
+  // BOOKING STATUSES THAT BLOCK AVAILABILITY
+  //
+  // These statuses represent a real rental reservation/lifecycle
+  // and therefore must block the vehicle for its booked period.
+  //
+  // booking
+  // pickupPending
+  // pickup
+  // active
+  // returnPending
+  // return
+  //
+  // cancelled, noShow and completed do NOT block availability.
+  // ============================================================
+
+  static const List<String>
+      _availabilityBlockingStatuses = [
+    'booking',
+    'pickupPending',
+    'pickup',
+    'active',
+    'returnPending',
+    'return',
+  ];
+
+  // ============================================================
   // CHECK AVAILABILITY
   //
   // Checks future bookings for ONE vehicle.
@@ -101,7 +126,7 @@ class BookingService {
     String? excludeBookingId,
   }) async {
     if (requestedReturn
-        .isBefore(requestedPickup) ||
+            .isBefore(requestedPickup) ||
         requestedReturn.isAtSameMomentAs(
           requestedPickup,
         )) {
@@ -140,7 +165,7 @@ class BookingService {
     // Only this vehicle's relevant bookings are queried.
     // ----------------------------------------------------------
 
-    Query<Map<String, dynamic>> query =
+    final query =
         _bookings
             .where(
               'businessId',
@@ -159,10 +184,8 @@ class BookingService {
             )
             .where(
               'status',
-              whereIn: [
-                'confirmed',
-                'active',
-              ],
+              whereIn:
+                  _availabilityBlockingStatuses,
             );
 
     final snapshot =
@@ -220,8 +243,16 @@ class BookingService {
   //
   // Used by the calendar screen.
   //
-  // Returns only confirmed + active bookings for one vehicle
-  // inside the requested calendar window.
+  // Returns all bookings that can block a vehicle inside the
+  // requested calendar window.
+  //
+  // Includes:
+  // booking
+  // pickupPending
+  // pickup
+  // active
+  // returnPending
+  // return
   // ============================================================
 
   Future<List<BookingModel>>
@@ -288,10 +319,8 @@ class BookingService {
             )
             .where(
               'status',
-              whereIn: [
-                'confirmed',
-                'active',
-              ],
+              whereIn:
+                  _availabilityBlockingStatuses,
             )
             .where(
               'pickupDateTime',
@@ -333,284 +362,273 @@ class BookingService {
     return results;
   }
 
-// ============================================================
-// CHECK BRANCH AVAILABILITY
-//
-// Returns ALL vehicles in the current branch that are available
-// for the requested pickup -> return DateTime range.
-//
-// This is used by:
-//
-// Dashboard
-//    ↓
-// BranchAvailabilityScreen
-//    ↓
-// All available vehicles
-//
-// IMPORTANT:
-// We reuse the same BookingService and the same overlap logic
-// used by checkAvailability().
-//
-// Supported:
-// - hourly rentals
-// - same-day rentals
-// - overnight rentals
-// - multi-day rentals
-// - future bookings
-// ============================================================
-
-Future<List<VehicleModel>>
-    checkBranchAvailability({
-  required DateTime requestedPickup,
-  required DateTime requestedReturn,
-}) async {
-  // ----------------------------------------------------------
-  // VALIDATE DATE/TIME
-  // ----------------------------------------------------------
-
-  if (requestedReturn
-      .isBefore(requestedPickup) ||
-      requestedReturn.isAtSameMomentAs(
-        requestedPickup,
-      )) {
-    throw Exception(
-      'Return time must be after pickup time.',
-    );
-  }
-
-  // ----------------------------------------------------------
-  // GET CURRENT USER
+  // ============================================================
+  // CHECK BRANCH AVAILABILITY
   //
-  // This is the same method already used everywhere else
-  // in BookingService.
-  // ----------------------------------------------------------
-
-  final user =
-      await _getCurrentUserModel();
-
-  final businessId =
-      user.businessId;
-
-  final branchCode =
-      user.branchCode;
-
-  if (businessId == null ||
-      businessId.isEmpty) {
-    throw Exception(
-      'No business is assigned to your account.',
-    );
-  }
-
-  if (branchCode == null ||
-      branchCode.isEmpty) {
-    throw Exception(
-      'No branch is assigned to your account.',
-    );
-  }
-
-  // ----------------------------------------------------------
-  // STEP 1
-  // GET ACTIVE VEHICLES FOR THIS BRANCH
+  // Returns ALL vehicles in the current branch that are available
+  // for the requested pickup -> return DateTime range.
   //
-  // We do NOT read vehicles from other businesses/branches.
-  // ----------------------------------------------------------
-
-  final vehicleSnapshot =
-      await _vehicles
-          .where(
-            'businessId',
-            isEqualTo:
-                businessId,
-          )
-          .where(
-            'branchCode',
-            isEqualTo:
-                branchCode,
-          )
-          .where(
-            'isActive',
-            isEqualTo:
-                true,
-          )
-          .get();
-
-  if (vehicleSnapshot.docs.isEmpty) {
-    return [];
-  }
-
-  final vehicles =
-      vehicleSnapshot.docs
-          .map(
-            (doc) =>
-                VehicleModel.fromFirestore(
-              doc,
-            ),
-          )
-          .toList();
-
-  // ----------------------------------------------------------
-  // STEP 2
-  // REMOVE VEHICLES THAT ARE NOT RENTABLE
+  // This is used by:
   //
-  // Maintenance and inactive vehicles can never appear as
-  // available.
-  // ----------------------------------------------------------
-
-  final rentableVehicles =
-      vehicles.where(
-    (vehicle) {
-      return vehicle.isActive &&
-          vehicle.status !=
-              VehicleStatus.maintenance &&
-          vehicle.status !=
-              VehicleStatus.inactive;
-    },
-  ).toList();
-
-  if (rentableVehicles.isEmpty) {
-    return [];
-  }
-
-  // ----------------------------------------------------------
-  // STEP 3
-  // GET VEHICLE IDS
-  // ----------------------------------------------------------
-
-  final vehicleIds =
-      rentableVehicles
-          .map(
-            (vehicle) =>
-                vehicle.id,
-          )
-          .toSet();
-
-  // ----------------------------------------------------------
-  // STEP 4
-  // GET RELEVANT BOOKINGS
+  // Dashboard
+  //    ↓
+  // BranchAvailabilityScreen
+  //    ↓
+  // All available vehicles
   //
   // IMPORTANT:
+  // We reuse the same BookingService and the same overlap logic
+  // used by checkAvailability().
   //
-  // We only need bookings that:
-  //
-  // pickupDateTime < requestedReturn
-  //
-  // because a booking that starts after the requested return
-  // cannot overlap.
-  //
-  // The second side of the overlap is checked locally:
-  //
-  // booking.returnDateTime > requestedPickup
-  //
-  // This also handles bookings that started before the requested
-  // period but continue into it.
-  // ----------------------------------------------------------
+  // Supported:
+  // - hourly rentals
+  // - same-day rentals
+  // - overnight rentals
+  // - multi-day rentals
+  // - future bookings
+  // ============================================================
 
-  final bookingSnapshot =
-      await _bookings
-          .where(
-            'businessId',
-            isEqualTo:
-                businessId,
-          )
-          .where(
-            'branchCode',
-            isEqualTo:
-                branchCode,
-          )
-          .where(
-            'status',
-            whereIn: [
-              'confirmed',
-              'active',
-            ],
-          )
-          .where(
-            'pickupDateTime',
-            isLessThan:
-                Timestamp.fromDate(
-              requestedReturn,
-            ),
-          )
-          .orderBy(
-            'pickupDateTime',
-          )
-          .get();
+  Future<List<VehicleModel>>
+      checkBranchAvailability({
+    required DateTime requestedPickup,
+    required DateTime requestedReturn,
+  }) async {
+    // ----------------------------------------------------------
+    // VALIDATE DATE/TIME
+    // ----------------------------------------------------------
 
-  // ----------------------------------------------------------
-  // STEP 5
-  // FIND VEHICLES WITH CONFLICTING BOOKINGS
-  // ----------------------------------------------------------
-
-  final unavailableVehicleIds =
-      <String>{};
-
-  for (final document
-      in bookingSnapshot.docs) {
-    final booking =
-        BookingModel.fromFirestore(
-      document,
-    );
-
-    // --------------------------------------------------------
-    // Ignore bookings for vehicles that are not currently
-    // rentable vehicles in this branch.
-    // --------------------------------------------------------
-
-    if (!vehicleIds.contains(
-      booking.vehicleId,
-    )) {
-      continue;
+    if (requestedReturn
+            .isBefore(requestedPickup) ||
+        requestedReturn.isAtSameMomentAs(
+          requestedPickup,
+        )) {
+      throw Exception(
+        'Return time must be after pickup time.',
+      );
     }
 
-    // --------------------------------------------------------
-    // EXACT OVERLAP CHECK
+    // ----------------------------------------------------------
+    // GET CURRENT USER
+    // ----------------------------------------------------------
+
+    final user =
+        await _getCurrentUserModel();
+
+    final businessId =
+        user.businessId;
+
+    final branchCode =
+        user.branchCode;
+
+    if (businessId == null ||
+        businessId.isEmpty) {
+      throw Exception(
+        'No business is assigned to your account.',
+      );
+    }
+
+    if (branchCode == null ||
+        branchCode.isEmpty) {
+      throw Exception(
+        'No branch is assigned to your account.',
+      );
+    }
+
+    // ----------------------------------------------------------
+    // STEP 1
+    // GET ACTIVE VEHICLES FOR THIS BRANCH
+    // ----------------------------------------------------------
+
+    final vehicleSnapshot =
+        await _vehicles
+            .where(
+              'businessId',
+              isEqualTo:
+                  businessId,
+            )
+            .where(
+              'branchCode',
+              isEqualTo:
+                  branchCode,
+            )
+            .where(
+              'isActive',
+              isEqualTo:
+                  true,
+            )
+            .get();
+
+    if (vehicleSnapshot.docs.isEmpty) {
+      return [];
+    }
+
+    final vehicles =
+        vehicleSnapshot.docs
+            .map(
+              (doc) =>
+                  VehicleModel.fromFirestore(
+                doc,
+              ),
+            )
+            .toList();
+
+    // ----------------------------------------------------------
+    // STEP 2
+    // REMOVE VEHICLES THAT ARE NOT RENTABLE
     //
-    // Reuses BookingModel.overlaps(), exactly like the existing
-    // checkAvailability() method.
-    // --------------------------------------------------------
+    // Maintenance and inactive vehicles can never appear as
+    // available.
+    // ----------------------------------------------------------
 
-    if (booking.overlaps(
-      requestedPickup,
-      requestedReturn,
-    )) {
-      unavailableVehicleIds.add(
-        booking.vehicleId,
-      );
+    final rentableVehicles =
+        vehicles.where(
+      (vehicle) {
+        return vehicle.isActive &&
+            vehicle.status !=
+                VehicleStatus.maintenance &&
+            vehicle.status !=
+                VehicleStatus.inactive;
+      },
+    ).toList();
+
+    if (rentableVehicles.isEmpty) {
+      return [];
     }
-  }
 
-  // ----------------------------------------------------------
-  // STEP 6
-  // RETURN AVAILABLE VEHICLES
-  // ----------------------------------------------------------
+    // ----------------------------------------------------------
+    // STEP 3
+    // GET VEHICLE IDS
+    // ----------------------------------------------------------
 
-  final availableVehicles =
-      rentableVehicles.where(
-    (vehicle) {
-      return !unavailableVehicleIds
-          .contains(
-        vehicle.id,
+    final vehicleIds =
+        rentableVehicles
+            .map(
+              (vehicle) =>
+                  vehicle.id,
+            )
+            .toSet();
+
+    // ----------------------------------------------------------
+    // STEP 4
+    // GET RELEVANT BOOKINGS
+    //
+    // We only need bookings that:
+    //
+    // pickupDateTime < requestedReturn
+    //
+    // because a booking that starts after the requested return
+    // cannot overlap.
+    //
+    // The second side of the overlap is checked locally:
+    //
+    // booking.returnDateTime > requestedPickup
+    //
+    // This also handles bookings that started before the requested
+    // period but continue into it.
+    // ----------------------------------------------------------
+
+    final bookingSnapshot =
+        await _bookings
+            .where(
+              'businessId',
+              isEqualTo:
+                  businessId,
+            )
+            .where(
+              'branchCode',
+              isEqualTo:
+                  branchCode,
+            )
+            .where(
+              'status',
+              whereIn:
+                  _availabilityBlockingStatuses,
+            )
+            .where(
+              'pickupDateTime',
+              isLessThan:
+                  Timestamp.fromDate(
+                requestedReturn,
+              ),
+            )
+            .orderBy(
+              'pickupDateTime',
+            )
+            .get();
+
+    // ----------------------------------------------------------
+    // STEP 5
+    // FIND VEHICLES WITH CONFLICTING BOOKINGS
+    // ----------------------------------------------------------
+
+    final unavailableVehicleIds =
+        <String>{};
+
+    for (final document
+        in bookingSnapshot.docs) {
+      final booking =
+          BookingModel.fromFirestore(
+        document,
       );
-    },
-  ).toList();
 
-  // ----------------------------------------------------------
-  // SORT
-  //
-  // Available vehicles first remain naturally ordered by the
-  // Firestore query.
-  //
-  // We can later add sorting by:
-  // - price
-  // - vehicle type
-  // - model
-  // - availability
-  // ----------------------------------------------------------
+      // --------------------------------------------------------
+      // Ignore bookings for vehicles that are not currently
+      // rentable vehicles in this branch.
+      // --------------------------------------------------------
 
-  return availableVehicles;
-}
+      if (!vehicleIds.contains(
+        booking.vehicleId,
+      )) {
+        continue;
+      }
 
+      // --------------------------------------------------------
+      // EXACT OVERLAP CHECK
+      //
+      // Reuses BookingModel.overlaps(), exactly like the existing
+      // checkAvailability() method.
+      // --------------------------------------------------------
 
+      if (booking.overlaps(
+        requestedPickup,
+        requestedReturn,
+      )) {
+        unavailableVehicleIds.add(
+          booking.vehicleId,
+        );
+      }
+    }
+
+    // ----------------------------------------------------------
+    // STEP 6
+    // RETURN AVAILABLE VEHICLES
+    // ----------------------------------------------------------
+
+    final availableVehicles =
+        rentableVehicles.where(
+      (vehicle) {
+        return !unavailableVehicleIds
+            .contains(
+          vehicle.id,
+        );
+      },
+    ).toList();
+
+    // ----------------------------------------------------------
+    // SORT
+    //
+    // Available vehicles first remain naturally ordered by the
+    // Firestore query.
+    //
+    // We can later add sorting by:
+    // - price
+    // - vehicle type
+    // - model
+    // - availability
+    // ----------------------------------------------------------
+
+    return availableVehicles;
+  }
 
   // ============================================================
   // GET VEHICLE
@@ -665,10 +683,6 @@ Future<List<VehicleModel>>
 
     required String pickupLocation,
     required String returnLocation,
-
-    required int startingKm,
-
-    required FuelLevel fuelAtPickup,
 
     required double dailyRate,
     double? hourlyRate,
@@ -890,13 +904,13 @@ Future<List<VehicleModel>>
           returnLocation,
 
       startingKm:
-          startingKm,
+          null,
 
       endingKm:
           null,
 
       fuelAtPickup:
-          fuelAtPickup,
+          null,
 
       fuelAtReturn:
           null,
@@ -954,8 +968,12 @@ Future<List<VehicleModel>>
             paidAmount,
       ),
 
+      // --------------------------------------------------------
+      // NEW BOOKING STATUS
+      // --------------------------------------------------------
+
       status:
-          BookingStatus.confirmed,
+          BookingStatus.booking,
 
       paymentStatus:
           paymentStatus,
@@ -990,11 +1008,15 @@ Future<List<VehicleModel>>
       idProofImageUrl:
           idProofImageUrl,
 
+      // --------------------------------------------------------
+      // AUDIT FIELDS
+      // --------------------------------------------------------
+
       createdBy:
           uid,
 
       confirmedBy:
-          uid,
+          null,
 
       startedBy:
           null,
@@ -1018,7 +1040,7 @@ Future<List<VehicleModel>>
           now,
 
       confirmedAt:
-          now,
+          null,
 
       startedAt:
           null,
@@ -1071,7 +1093,968 @@ Future<List<VehicleModel>>
 
     return booking;
   }
+  // ============================================================
+  // MARK PICKUP PENDING
+  //
+  // Booking is approaching / customer is expected.
+  //
+  // booking
+  //    ↓
+  // pickupPending
+  // ============================================================
 
+  Future<BookingModel> markPickupPending(
+    String bookingId,
+  ) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.booking) {
+      throw Exception(
+        'This booking cannot be moved to pickup pending.',
+      );
+    }
+
+    await bookingRef.update({
+      'status':
+         BookingModel.statusToString(
+        BookingStatus.pickupPending,
+      ),
+      'updatedAt':
+          FieldValue.serverTimestamp(),
+    });
+
+    return booking.copyWith(
+      status:
+          BookingStatus.pickupPending,
+      updatedAt:
+          DateTime.now(),
+    );
+  }
+
+  // ============================================================
+  // START PICKUP
+  //
+  // Staff has started the pickup / handover process.
+  //
+  // pickupPending
+  //       ↓
+  // pickup
+  // ============================================================
+
+  Future<BookingModel> startPickup({
+    required String bookingId,
+    required int startingKm,
+    required FuelLevel fuelAtPickup,
+  }) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.pickupPending) {
+      throw Exception(
+        'This booking is not ready for pickup.',
+      );
+    }
+
+    if (startingKm < 0) {
+      throw Exception(
+        'Starting KM cannot be negative.',
+      );
+    }
+
+    await bookingRef.update({
+      'status':
+         BookingModel.statusToString(
+        BookingStatus.pickup,
+      ),
+      'startingKm':
+          startingKm,
+      'fuelAtPickup':
+          BookingModel.fuelToString(
+        fuelAtPickup,
+      ),
+      'updatedAt':
+          FieldValue.serverTimestamp(),
+    });
+
+    return booking.copyWith(
+      status:
+          BookingStatus.pickup,
+      startingKm:
+          startingKm,
+      fuelAtPickup:
+          fuelAtPickup,
+      updatedAt:
+          DateTime.now(),
+    );
+  }
+
+  // ============================================================
+  // START RENTAL
+  //
+  // Vehicle is physically handed over to customer.
+  //
+  // pickup
+  //   ↓
+  // active
+  //
+  // Vehicle:
+  // reserved → rented
+  // ============================================================
+
+  Future<BookingModel> startRental(
+    String bookingId,
+  ) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final bookingSnapshot =
+        await bookingRef.get();
+
+    if (!bookingSnapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      bookingSnapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.pickup) {
+      throw Exception(
+        'Pickup must be completed before starting the rental.',
+      );
+    }
+
+    final now =
+        DateTime.now();
+
+    final batch =
+        _firestore.batch();
+
+    // ----------------------------------------------------------
+    // BOOKING
+    // ----------------------------------------------------------
+
+    batch.update(
+      bookingRef,
+      {
+        'status':
+           BookingModel.statusToString(
+          BookingStatus.active,
+        ),
+        'startedBy':
+            user.uid,
+        'startedAt':
+            Timestamp.fromDate(now),
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    // ----------------------------------------------------------
+    // VEHICLE
+    // ----------------------------------------------------------
+
+    final vehicleRef =
+        _vehicles.doc(
+      booking.vehicleId,
+    );
+
+    batch.update(
+      vehicleRef,
+      {
+        'status':
+            'rented',
+        'currentBookingId':
+            booking.id,
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    await batch.commit();
+
+    return booking.copyWith(
+      status:
+          BookingStatus.active,
+      startedBy:
+          user.uid,
+      startedAt:
+          now,
+      updatedAt:
+          now,
+    );
+  }
+
+  // ============================================================
+  // MARK RETURN PENDING
+  //
+  // Rental is still active but the vehicle is now due for return.
+  //
+  // active
+  //   ↓
+  // returnPending
+  //
+  // Vehicle remains rented.
+  // ============================================================
+
+  Future<BookingModel> markReturnPending(
+    String bookingId,
+  ) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.active) {
+      throw Exception(
+        'Only an active rental can be marked as return pending.',
+      );
+    }
+
+    await bookingRef.update({
+      'status':
+         BookingModel.statusToString(
+        BookingStatus.returnPending,
+      ),
+      'updatedAt':
+          FieldValue.serverTimestamp(),
+    });
+
+    return booking.copyWith(
+      status:
+          BookingStatus.returnPending,
+      updatedAt:
+          DateTime.now(),
+    );
+  }
+
+  // ============================================================
+  // START RETURN
+  //
+  // Vehicle has physically come back.
+  //
+  // returnPending
+  //       ↓
+  // return
+  //
+  // This opens the return/inspection process.
+  // ============================================================
+
+  Future<BookingModel> startReturn(
+    String bookingId,
+  ) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.returnPending) {
+      throw Exception(
+        'This booking is not ready for return processing.',
+      );
+    }
+
+    await bookingRef.update({
+      'status':
+         BookingModel.statusToString(
+        BookingStatus.returning,
+      ),
+      'updatedAt':
+          FieldValue.serverTimestamp(),
+    });
+
+    return booking.copyWith(
+      status:
+          BookingStatus.returning,
+      updatedAt:
+          DateTime.now(),
+    );
+  }
+
+  // ============================================================
+  // COMPLETE BOOKING
+  //
+  // Return process + final settlement completed.
+  //
+  // return
+  //   ↓
+  // completed
+  //
+  // Vehicle:
+  // rented → available
+  // ============================================================
+
+  Future<BookingModel> completeBooking({
+    required String bookingId,
+    required int endingKm,
+    required FuelLevel fuelAtReturn,
+    double? extraKmCharge,
+    double? fuelCharge,
+    double? lateReturnCharge,
+    double? damageCharge,
+    double? otherCharges,
+    double? paidAmount,
+    String? customerSignatureUrl,
+    String? staffSignatureUrl,
+    String? internalNotes,
+  }) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final bookingSnapshot =
+        await bookingRef.get();
+
+    if (!bookingSnapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      bookingSnapshot,
+    );
+
+    if (booking.status !=
+        BookingStatus.returning) {
+      throw Exception(
+        'Return processing must be started before completing the booking.',
+      );
+    }
+
+    if (booking.startingKm == null) {
+      throw Exception(
+        'Starting KM was not recorded during pickup.',
+      );
+    }
+
+    if (endingKm < booking.startingKm!) {
+      throw Exception(
+        'Ending KM cannot be less than starting KM.',
+      );
+    }
+
+    final finalExtraKmCharge =
+        extraKmCharge ??
+            booking.extraKmCharge;
+
+    final finalFuelCharge =
+        fuelCharge ??
+            booking.fuelCharge;
+
+    final finalLateReturnCharge =
+        lateReturnCharge ??
+            booking.lateReturnCharge;
+
+    final finalDamageCharge =
+        damageCharge ??
+            booking.damageCharge;
+
+    final finalOtherCharges =
+        otherCharges ??
+            booking.otherCharges;
+
+    final finalPaidAmount =
+        paidAmount ??
+            booking.paidAmount;
+
+    final finalTotalAmount =
+        booking.baseRentalAmount +
+        booking.securityDeposit +
+        finalExtraKmCharge +
+        finalFuelCharge +
+        finalLateReturnCharge +
+        finalDamageCharge +
+        finalOtherCharges -
+        booking.discount +
+        booking.tax;
+
+    final finalPendingAmount =
+        _calculatePendingAmount(
+      totalAmount:
+          finalTotalAmount,
+      paidAmount:
+          finalPaidAmount,
+    );
+
+    final finalPaymentStatus =
+        _calculatePaymentStatus(
+      totalAmount:
+          finalTotalAmount,
+      paidAmount:
+          finalPaidAmount,
+    );
+
+    final now =
+        DateTime.now();
+
+    final batch =
+        _firestore.batch();
+
+    // ----------------------------------------------------------
+    // BOOKING
+    // ----------------------------------------------------------
+
+    batch.update(
+      bookingRef,
+      {
+        'status':
+           BookingModel.statusToString(
+          BookingStatus.completed,
+        ),
+
+        'endingKm':
+            endingKm,
+
+        'fuelAtReturn':
+            BookingModel.fuelToString(
+          fuelAtReturn,
+        ),
+
+        'extraKmCharge':
+            finalExtraKmCharge,
+
+        'fuelCharge':
+            finalFuelCharge,
+
+        'lateReturnCharge':
+            finalLateReturnCharge,
+
+        'damageCharge':
+            finalDamageCharge,
+
+        'otherCharges':
+            finalOtherCharges,
+
+        'totalAmount':
+            finalTotalAmount,
+
+        'paidAmount':
+            finalPaidAmount,
+
+        'pendingAmount':
+            finalPendingAmount,
+
+        'paymentStatus':
+            BookingModel.paymentStatusToString(
+          finalPaymentStatus,
+        ),
+
+        'customerSignatureUrl':
+            customerSignatureUrl ??
+                booking.customerSignatureUrl,
+
+        'staffSignatureUrl':
+            staffSignatureUrl ??
+                booking.staffSignatureUrl,
+
+        'completedBy':
+            user.uid,
+
+        'completedAt':
+            Timestamp.fromDate(now),
+
+        'internalNotes':
+            internalNotes ??
+                booking.internalNotes,
+
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    // ----------------------------------------------------------
+    // VEHICLE
+    //
+    // Rental is now finished.
+    // Vehicle becomes available again.
+    // ----------------------------------------------------------
+
+    final vehicleRef =
+        _vehicles.doc(
+      booking.vehicleId,
+    );
+
+    batch.update(
+      vehicleRef,
+      {
+        'status':
+            'available',
+
+        'currentBookingId':
+            null,
+
+        'nextBookingStartAt':
+            null,
+
+        'nextBookingEndAt':
+            null,
+
+        'currentKm':
+            endingKm,
+
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    await batch.commit();
+
+    return booking.copyWith(
+      status:
+          BookingStatus.completed,
+
+      endingKm:
+          endingKm,
+
+      fuelAtReturn:
+          fuelAtReturn,
+
+      extraKmCharge:
+          finalExtraKmCharge,
+
+      fuelCharge:
+          finalFuelCharge,
+
+      lateReturnCharge:
+          finalLateReturnCharge,
+
+      damageCharge:
+          finalDamageCharge,
+
+      otherCharges:
+          finalOtherCharges,
+
+      totalAmount:
+          finalTotalAmount,
+
+      paidAmount:
+          finalPaidAmount,
+
+      pendingAmount:
+          finalPendingAmount,
+
+      paymentStatus:
+          finalPaymentStatus,
+
+      customerSignatureUrl:
+          customerSignatureUrl ??
+              booking.customerSignatureUrl,
+
+      staffSignatureUrl:
+          staffSignatureUrl ??
+              booking.staffSignatureUrl,
+
+      completedBy:
+          user.uid,
+
+      completedAt:
+          now,
+
+      internalNotes:
+          internalNotes ??
+              booking.internalNotes,
+
+      updatedAt:
+          now,
+    );
+  }
+
+  // ============================================================
+  // CANCEL BOOKING
+  //
+  // booking / pickupPending
+  //        ↓
+  // cancelled
+  //
+  // Cancelled bookings do NOT block availability.
+  // ============================================================
+
+  Future<BookingModel> cancelBooking({
+    required String bookingId,
+    String? reason,
+  }) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status ==
+            BookingStatus.completed ||
+        booking.status ==
+            BookingStatus.cancelled ||
+        booking.status ==
+            BookingStatus.noShow) {
+      throw Exception(
+        'This booking can no longer be cancelled.',
+      );
+    }
+
+    final now =
+        DateTime.now();
+
+    final batch =
+        _firestore.batch();
+
+    batch.update(
+      bookingRef,
+      {
+        'status':
+           BookingModel.statusToString(
+          BookingStatus.cancelled,
+        ),
+
+        'cancelledBy':
+            user.uid,
+
+        'cancelledAt':
+            Timestamp.fromDate(now),
+
+        'internalNotes':
+            reason ??
+                booking.internalNotes,
+
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    // ----------------------------------------------------------
+    // Only release the vehicle if this booking currently owns
+    // the vehicle reservation.
+    // ----------------------------------------------------------
+
+    final vehicleRef =
+        _vehicles.doc(
+      booking.vehicleId,
+    );
+
+    final vehicleSnapshot =
+        await vehicleRef.get();
+
+    if (vehicleSnapshot.exists) {
+      final vehicleData =
+          vehicleSnapshot.data();
+
+      final currentBookingId =
+          vehicleData?[
+              'currentBookingId'];
+
+      if (currentBookingId ==
+          booking.id) {
+        batch.update(
+          vehicleRef,
+          {
+            'status':
+                'available',
+
+            'currentBookingId':
+                null,
+
+            'nextBookingStartAt':
+                null,
+
+            'nextBookingEndAt':
+                null,
+
+            'updatedAt':
+                Timestamp.fromDate(
+              now,
+            ),
+          },
+        );
+      }
+    }
+
+    await batch.commit();
+
+    return booking.copyWith(
+      status:
+          BookingStatus.cancelled,
+
+      cancelledBy:
+          user.uid,
+
+      cancelledAt:
+          now,
+
+      internalNotes:
+          reason ??
+              booking.internalNotes,
+
+      updatedAt:
+          now,
+    );
+  }
+
+  // ============================================================
+  // MARK NO SHOW
+  //
+  // Customer did not arrive for pickup.
+  //
+  // booking / pickupPending
+  //        ↓
+  // noShow
+  // ============================================================
+
+  Future<BookingModel> markNoShow(
+    String bookingId, {
+    String? reason,
+  }) async {
+    final user = currentUser;
+
+    if (user == null) {
+      throw Exception(
+        'You must be logged in.',
+      );
+    }
+
+    final bookingRef =
+        _bookings.doc(bookingId);
+
+    final snapshot =
+        await bookingRef.get();
+
+    if (!snapshot.exists) {
+      throw Exception(
+        'Booking not found.',
+      );
+    }
+
+    final booking =
+        BookingModel.fromFirestore(
+      snapshot,
+    );
+
+    if (booking.status !=
+            BookingStatus.booking &&
+        booking.status !=
+            BookingStatus.pickupPending) {
+      throw Exception(
+        'Only a booking awaiting pickup can be marked as no-show.',
+      );
+    }
+
+    final now =
+        DateTime.now();
+
+    final batch =
+        _firestore.batch();
+
+    batch.update(
+      bookingRef,
+      {
+        'status':
+           BookingModel.statusToString(
+          BookingStatus.noShow,
+        ),
+
+        'cancelledBy':
+            user.uid,
+
+        'cancelledAt':
+            Timestamp.fromDate(now),
+
+        'internalNotes':
+            reason ??
+                'Customer did not arrive for pickup.',
+
+        'updatedAt':
+            Timestamp.fromDate(now),
+      },
+    );
+
+    final vehicleRef =
+        _vehicles.doc(
+      booking.vehicleId,
+    );
+
+    final vehicleSnapshot =
+        await vehicleRef.get();
+
+    if (vehicleSnapshot.exists) {
+      final vehicleData =
+          vehicleSnapshot.data();
+
+      final currentBookingId =
+          vehicleData?[
+              'currentBookingId'];
+
+      if (currentBookingId ==
+          booking.id) {
+        batch.update(
+          vehicleRef,
+          {
+            'status':
+                'available',
+
+            'currentBookingId':
+                null,
+
+            'nextBookingStartAt':
+                null,
+
+            'nextBookingEndAt':
+                null,
+
+            'updatedAt':
+                Timestamp.fromDate(
+              now,
+            ),
+          },
+        );
+      }
+    }
+
+    await batch.commit();
+
+    return booking.copyWith(
+      status:
+          BookingStatus.noShow,
+
+      cancelledBy:
+          user.uid,
+
+      cancelledAt:
+          now,
+
+      internalNotes:
+          reason ??
+              'Customer did not arrive for pickup.',
+
+      updatedAt:
+          now,
+    );
+  }
   // ============================================================
   // GENERATE BOOKING NUMBER
   //
@@ -1083,7 +2066,102 @@ Future<List<VehicleModel>>
   // For very high concurrency, this counter should be replaced
   // by a dedicated transactional counter.
   // ============================================================
+// ============================================================
+// GET BOOKINGS
+//
+// Used by BookingsScreen.
+//
+// Filters:
+// - current business
+// - current branch
+// - optional status
+// - optional date range
+//
+// Search is intentionally handled in the UI because Firestore
+// does not support contains search across multiple fields.
+// ============================================================
 
+Future<List<BookingModel>> getBookings({
+  BookingStatus? status,
+  DateTime? startDate,
+  DateTime? endDate,
+}) async {
+  final user = await _getCurrentUserModel();
+
+  final businessId = user.businessId;
+  final branchCode = user.branchCode;
+
+  if (businessId == null || businessId.isEmpty) {
+    throw Exception(
+      'No business is assigned to your account.',
+    );
+  }
+
+  if (branchCode == null || branchCode.isEmpty) {
+    throw Exception(
+      'No branch is assigned to your account.',
+    );
+  }
+
+  Query<Map<String, dynamic>> query = _bookings
+      .where(
+        'businessId',
+        isEqualTo: businessId,
+      )
+      .where(
+        'branchCode',
+        isEqualTo: branchCode,
+      );
+
+  // ----------------------------------------------------------
+  // STATUS FILTER
+  // ----------------------------------------------------------
+
+  if (status != null) {
+    query = query.where(
+      'status',
+      isEqualTo: BookingModel.statusToString(status),
+    );
+  }
+
+  // ----------------------------------------------------------
+  // DATE FILTER
+  //
+  // We filter using pickupDateTime.
+  // The UI can additionally check return dates when needed.
+  // ----------------------------------------------------------
+
+  if (startDate != null) {
+    query = query.where(
+      'pickupDateTime',
+      isGreaterThanOrEqualTo: Timestamp.fromDate(
+        startDate,
+      ),
+    );
+  }
+
+  if (endDate != null) {
+    query = query.where(
+      'pickupDateTime',
+      isLessThan: Timestamp.fromDate(
+        endDate,
+      ),
+    );
+  }
+
+  query = query.orderBy(
+    'pickupDateTime',
+    descending: false,
+  );
+
+  final snapshot = await query.get();
+
+  return snapshot.docs
+      .map(
+        (doc) => BookingModel.fromFirestore(doc),
+      )
+      .toList();
+}
   Future<String>
       _generateBookingNumber({
     required String branchCode,
@@ -1135,10 +2213,13 @@ Future<List<VehicleModel>>
           {
             'branchCode':
                 branchCode,
+
             'date':
                 dateString,
+
             'lastNumber':
                 next,
+
             'updatedAt':
                 FieldValue
                     .serverTimestamp(),
@@ -1289,4 +2370,3 @@ class BookingConflictException
         '${first.returnDateTime}.';
   }
 }
-
