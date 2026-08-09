@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../models/vehicle_model.dart';
-
+import '../bookings/availability_screen.dart';
 class VehicleDetailsScreen extends StatefulWidget {
   final VehicleModel vehicle;
 
@@ -436,57 +436,63 @@ class _VehicleDetailsScreenState
   // QUICK ACTIONS
   // ============================================================
 
-  Widget _buildQuickActions() {
-    return Row(
-      children: [
-        Expanded(
-          child:
-              _actionButton(
-            icon:
-                Icons.edit_outlined,
-            label:
-                'Edit',
-            onTap:
-                _editVehicle,
+Widget _buildQuickActions() {
+  return Column(
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: _actionButton(
+              icon: Icons.edit_outlined,
+              label: 'Edit',
+              onTap: _editVehicle,
+            ),
           ),
-        ),
 
-        const SizedBox(
-          width:
-              AppSpacing.md,
-        ),
-
-        Expanded(
-          child:
-              _actionButton(
-            icon:
-                Icons.sync_alt_rounded,
-            label:
-                'Status',
-            onTap:
-                _changeStatus,
+          const SizedBox(
+            width: AppSpacing.md,
           ),
-        ),
 
-        const SizedBox(
-          width:
-              AppSpacing.md,
-        ),
-
-        Expanded(
-          child:
-              _actionButton(
-            icon:
-                Icons.build_outlined,
-            label:
-                'Service',
-            onTap:
-                _openMaintenance,
+          Expanded(
+            child: _actionButton(
+              icon: Icons.event_available_outlined,
+              label: 'Availability',
+              onTap: _openAvailability,
+            ),
           ),
-        ),
-      ],
-    );
-  }
+        ],
+      ),
+
+      const SizedBox(
+        height: AppSpacing.md,
+      ),
+
+      Row(
+        children: [
+          Expanded(
+            child: _actionButton(
+              icon: Icons.sync_alt_rounded,
+              label: 'Status',
+              onTap: _changeStatus,
+            ),
+          ),
+
+          const SizedBox(
+            width: AppSpacing.md,
+          ),
+
+          Expanded(
+            child: _actionButton(
+              icon: Icons.build_outlined,
+              label: 'Service',
+              onTap: _openMaintenance,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
   // ============================================================
   // ACTION BUTTON
@@ -1750,7 +1756,15 @@ class _VehicleDetailsScreenState
   // ============================================================
   // ACTIONS
   // ============================================================
-
+void _openAvailability() {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => AvailabilityScreen(
+        vehicle: vehicle,
+      ),
+    ),
+  );
+}
   void _editVehicle() {
     ScaffoldMessenger.of(context)
         .showSnackBar(

@@ -7,6 +7,8 @@ import '../../services/auth_service.dart';
 import '../../services/dashboard_service.dart';
 import '../vehicles/add_vehicle_screen.dart';
 import '../vehicles/vehicle_list_screen.dart';
+import '../bookings/availability_screen.dart';
+import '../bookings/branch_availability_screen.dart';
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
     super.key,
@@ -267,11 +269,8 @@ _buildQuickActions(),
 
 
 
-          const SizedBox(
-            height: AppSpacing.xxl,
-          ),
+         
 
-          _buildQuickActions(),
         ],
       ),
     );
@@ -833,6 +832,7 @@ Widget _buildQuickActions() {
   return Column(
     crossAxisAlignment:
         CrossAxisAlignment.start,
+
     children: [
       _title(
         'Quick Actions',
@@ -843,6 +843,10 @@ Widget _buildQuickActions() {
         height: AppSpacing.lg,
       ),
 
+      // ========================================================
+      // ADD VEHICLE + AVAILABILITY
+      // ========================================================
+
       Row(
         children: [
           Expanded(
@@ -850,10 +854,10 @@ Widget _buildQuickActions() {
               icon:
                   Icons.directions_car_outlined,
               title: 'Add Vehicle',
-
               onTap: () async {
                 final result =
-                    await Navigator.of(context).push(
+                    await Navigator.of(context)
+                        .push(
                   MaterialPageRoute(
                     builder: (_) =>
                         const AddVehicleScreen(),
@@ -875,8 +879,17 @@ Widget _buildQuickActions() {
           Expanded(
             child: _actionCard(
               icon:
-                  Icons.calendar_month_outlined,
-              title: 'New Booking',
+                  Icons.event_available_outlined,
+              title: 'Availability',
+              onTap: () async {
+                await Navigator.of(context)
+                    .push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const BranchAvailabilityScreen(),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -886,13 +899,26 @@ Widget _buildQuickActions() {
         height: AppSpacing.md,
       ),
 
+      // ========================================================
+      // NEW BOOKING + VEHICLES
+      // ========================================================
+
       Row(
         children: [
           Expanded(
             child: _actionCard(
               icon:
-                  Icons.person_add_alt_1_outlined,
-              title: 'Add Customer',
+                  Icons.calendar_month_outlined,
+              title: 'New Booking',
+              onTap: () async {
+                await Navigator.of(context)
+                    .push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const BranchAvailabilityScreen(),
+                  ),
+                );
+              },
             ),
           ),
 
@@ -903,9 +929,49 @@ Widget _buildQuickActions() {
           Expanded(
             child: _actionCard(
               icon:
+                  Icons.directions_car_rounded,
+              title: 'Vehicles',
+              onTap: () async {
+                await Navigator.of(context)
+                    .push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const VehicleListScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+
+      const SizedBox(
+        height: AppSpacing.md,
+      ),
+
+      // ========================================================
+      // PAYMENT
+      // ========================================================
+
+      Row(
+        children: [
+          Expanded(
+            child: _actionCard(
+              icon:
                   Icons.payments_outlined,
               title: 'Payment',
+              onTap: () {
+                // Payment screen will be connected next.
+              },
             ),
+          ),
+
+          const SizedBox(
+            width: AppSpacing.md,
+          ),
+
+          const Expanded(
+            child: SizedBox(),
           ),
         ],
       ),
