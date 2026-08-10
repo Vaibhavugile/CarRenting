@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:car_rental/services/booking_service.dart';
 
 import 'package:car_rental/models/booking_model.dart';
 import '../../app/theme.dart';
-
+import 'pickup_screen.dart';
+import 'return_screen.dart';
 class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
 
@@ -31,6 +33,8 @@ class _BookingDetailsScreenState
     super.initState();
     _booking = widget.booking;
   }
+  final BookingService _bookingService =
+    BookingService.instance;
 
   // ============================================================
   // REFRESH
@@ -78,42 +82,54 @@ class _BookingDetailsScreenState
   // ============================================================
   // MAIN ACTION
   //
-  // Pickup / return screens will be connected once those screens
-  // are created. We intentionally do not fake a lifecycle change
-  // from this details screen.
+  // Booking:
+  //   Open PickupScreen -> Prepare Pickup -> Pickup Pending
+  //
+  // Pickup Pending:
+  //   Open PickupScreen -> record KM/fuel/checklist -> Pickup
   // ============================================================
 
-  void _handleMainAction() {
+  Future<void> _handleMainAction() async {
     switch (_booking.status) {
       case BookingStatus.booking:
-        _showMessage(
-          'This booking is ready for the pickup stage.',
-        );
-        return;
-
       case BookingStatus.pickupPending:
-        _showMessage(
-          'Pickup screen will handle KM, fuel and vehicle condition.',
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PickupScreen(
+              booking: _booking,
+            ),
+          ),
         );
+
+        // PickupScreen can change the booking status, so refresh
+        // the details screen when we return.
+        if (mounted) {
+          await _refreshBooking();
+        }
         return;
 
       case BookingStatus.pickup:
-        _showMessage(
-          'Pickup is recorded. The rental can now be started.',
-        );
-        return;
+  await _startRental();
+  return;
 
       case BookingStatus.active:
-        _showMessage(
-          'Return screen will handle the vehicle return.',
-        );
-        return;
+  await _startReturn();
+  return;
 
       case BookingStatus.returnPending:
-        _showMessage(
-          'Return processing is ready.',
-        );
-        return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ReturnScreen(
+        booking: _booking,
+      ),
+    ),
+  );
+
+  if (mounted) {
+    await _refreshBooking();
+  }
+
+  return;
 
       case BookingStatus.returning:
         _showMessage(
@@ -140,7 +156,58 @@ class _BookingDetailsScreenState
         return;
     }
   }
+Future<void> _startRental() async {
+  try {
+    await _bookingService.startRental(
+      _booking.id,
+    );
 
+    if (!mounted) return;
+
+    await _refreshBooking();
+
+    if (!mounted) return;
+
+    _showMessage(
+      'Rental started successfully.',
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    _showMessage(
+      e.toString().replaceFirst(
+        'Exception: ',
+        '',
+      ),
+    );
+  }
+}
+Future<void> _startReturn() async {
+  try {
+    await _bookingService.markReturnPending(
+      _booking.id,
+    );
+
+    if (!mounted) return;
+
+    await _refreshBooking();
+
+    if (!mounted) return;
+
+    _showMessage(
+      'Booking moved to Return Pending.',
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    _showMessage(
+      e.toString().replaceFirst(
+        'Exception: ',
+        '',
+      ),
+    );
+  }
+}
   // ============================================================
   // HELPERS
   // ============================================================
