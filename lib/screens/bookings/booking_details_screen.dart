@@ -27,12 +27,187 @@ class _BookingDetailsScreenState
 
   late BookingModel _booking;
   bool _isRefreshing = false;
+bool _isEditing = false;
+bool _isSaving = false;
 
+final _formKey = GlobalKey<FormState>();
+
+late TextEditingController _customerNameController;
+late TextEditingController _customerPhoneController;
+
+late TextEditingController _pickupLocationController;
+late TextEditingController _returnLocationController;
+
+late TextEditingController _dailyRateController;
+late TextEditingController _hourlyRateController;
+
+late TextEditingController _baseRentalController;
+late TextEditingController _securityDepositController;
+
+late TextEditingController _extraKmController;
+late TextEditingController _fuelChargeController;
+late TextEditingController _lateReturnController;
+late TextEditingController _damageChargeController;
+late TextEditingController _otherChargesController;
+
+late TextEditingController _discountController;
+late TextEditingController _taxController;
+
+late TextEditingController _totalAmountController;
+late TextEditingController _paidAmountController;
+
+late TextEditingController _agreementNumberController;
+
+late TextEditingController _licenseNumberController;
+late TextEditingController _idProofTypeController;
+late TextEditingController _idProofNumberController;
+
+late TextEditingController _customerNotesController;
+late TextEditingController _internalNotesController;
+
+DateTime? _editPickupDateTime;
+DateTime? _editReturnDateTime;
+
+DateTime? _editLicenseExpiryDate;
+
+bool _editTermsAccepted = false;
   @override
-  void initState() {
-    super.initState();
-    _booking = widget.booking;
-  }
+  @override
+void initState() {
+  super.initState();
+
+  _booking = widget.booking;
+
+  _initializeEditControllers();
+}
+void _initializeEditControllers() {
+  _customerNameController =
+      TextEditingController(
+    text: _booking.customerName,
+  );
+
+  _customerPhoneController =
+      TextEditingController(
+    text: _booking.customerPhone,
+  );
+
+  _pickupLocationController =
+      TextEditingController(
+    text: _booking.pickupLocation,
+  );
+
+  _returnLocationController =
+      TextEditingController(
+    text: _booking.returnLocation,
+  );
+
+  _dailyRateController =
+      TextEditingController(
+    text: _booking.dailyRate.toString(),
+  );
+
+  _hourlyRateController =
+      TextEditingController(
+    text: _booking.hourlyRate?.toString() ?? '',
+  );
+
+  _baseRentalController =
+      TextEditingController(
+    text: _booking.baseRentalAmount.toString(),
+  );
+
+  _securityDepositController =
+      TextEditingController(
+    text: _booking.securityDeposit.toString(),
+  );
+
+  _extraKmController =
+      TextEditingController(
+    text: _booking.extraKmCharge.toString(),
+  );
+
+  _fuelChargeController =
+      TextEditingController(
+    text: _booking.fuelCharge.toString(),
+  );
+
+  _lateReturnController =
+      TextEditingController(
+    text: _booking.lateReturnCharge.toString(),
+  );
+
+  _damageChargeController =
+      TextEditingController(
+    text: _booking.damageCharge.toString(),
+  );
+
+  _otherChargesController =
+      TextEditingController(
+    text: _booking.otherCharges.toString(),
+  );
+
+  _discountController =
+      TextEditingController(
+    text: _booking.discount.toString(),
+  );
+
+  _taxController =
+      TextEditingController(
+    text: _booking.tax.toString(),
+  );
+
+  _totalAmountController =
+      TextEditingController(
+    text: _booking.totalAmount.toString(),
+  );
+
+  _paidAmountController =
+      TextEditingController(
+    text: _booking.paidAmount.toString(),
+  );
+
+  _agreementNumberController =
+      TextEditingController(
+    text: _booking.agreementNumber,
+  );
+
+  _licenseNumberController =
+      TextEditingController(
+    text: _booking.licenseNumber ?? '',
+  );
+
+  _idProofTypeController =
+      TextEditingController(
+    text: _booking.idProofType ?? '',
+  );
+
+  _idProofNumberController =
+      TextEditingController(
+    text: _booking.idProofNumber ?? '',
+  );
+
+  _customerNotesController =
+      TextEditingController(
+    text: _booking.customerNotes ?? '',
+  );
+
+  _internalNotesController =
+      TextEditingController(
+    text: _booking.internalNotes ?? '',
+  );
+
+  _editPickupDateTime =
+      _booking.pickupDateTime;
+
+  _editReturnDateTime =
+      _booking.returnDateTime;
+
+  _editLicenseExpiryDate =
+      _booking.licenseExpiryDate;
+
+  _editTermsAccepted =
+      _booking.termsAccepted;
+}
   final BookingService _bookingService =
     BookingService.instance;
 
@@ -78,6 +253,587 @@ class _BookingDetailsScreenState
       }
     }
   }
+  void _cancelEditing() {
+  _initializeEditControllers();
+
+  setState(() {
+    _isEditing = false;
+  });
+}
+Future<void> _saveChanges() async {
+  if (_isSaving) return;
+
+  FocusScope.of(context).unfocus();
+
+  if (_editPickupDateTime == null ||
+      _editReturnDateTime == null) {
+    _showError(
+      'Please select pickup and return date/time.',
+    );
+    return;
+  }
+
+  if (!_editReturnDateTime!
+      .isAfter(_editPickupDateTime!)) {
+    _showError(
+      'Return time must be after pickup time.',
+    );
+    return;
+  }
+
+  double number(
+    TextEditingController controller,
+  ) {
+    return double.tryParse(
+          controller.text.trim(),
+        ) ??
+        0.0;
+  }
+
+  final dailyRate =
+      number(_dailyRateController);
+
+  final hourlyRateText =
+      _hourlyRateController.text.trim();
+
+  final hourlyRate =
+      hourlyRateText.isEmpty
+          ? null
+          : double.tryParse(
+              hourlyRateText,
+            );
+
+  final rentalAmount =
+      number(_baseRentalController);
+
+  final securityDeposit =
+      number(
+        _securityDepositController,
+      );
+
+  final extraKm =
+      number(_extraKmController);
+
+  final fuel =
+      number(_fuelChargeController);
+
+  final lateReturn =
+      number(_lateReturnController);
+
+  final damage =
+      number(_damageChargeController);
+
+  final other =
+      number(_otherChargesController);
+
+  final discount =
+      number(_discountController);
+
+  final tax =
+      number(_taxController);
+
+  final totalAmount =
+      number(_totalAmountController);
+
+  final paidAmount =
+      number(_paidAmountController);
+
+  if (totalAmount < 0) {
+    _showError(
+      'Total amount cannot be negative.',
+    );
+    return;
+  }
+
+  if (paidAmount < 0) {
+    _showError(
+      'Paid amount cannot be negative.',
+    );
+    return;
+  }
+
+  if (paidAmount > totalAmount) {
+    _showError(
+      'Paid amount cannot be greater than total amount.',
+    );
+    return;
+  }
+
+  if (dailyRate < 0 ||
+      (hourlyRate ?? 0) < 0 ||
+      rentalAmount < 0 ||
+      securityDeposit < 0 ||
+      extraKm < 0 ||
+      fuel < 0 ||
+      lateReturn < 0 ||
+      damage < 0 ||
+      other < 0 ||
+      discount < 0 ||
+      tax < 0) {
+    _showError(
+      'Amounts cannot be negative.',
+    );
+    return;
+  }
+
+  final duration =
+      _editReturnDateTime!
+          .difference(
+        _editPickupDateTime!,
+      );
+
+  final rentalDays =
+      duration.inDays;
+
+  final rentalHours =
+      duration.inHours % 24;
+
+  setState(() {
+    _isSaving = true;
+  });
+
+  try {
+    final updated =
+        await BookingService
+            .instance
+            .updateBooking(
+      bookingId:
+          _booking.id,
+
+      customerName:
+          _customerNameController.text
+              .trim(),
+
+      customerPhone:
+          _customerPhoneController.text
+              .trim(),
+
+      pickupDateTime:
+          _editPickupDateTime!,
+
+      returnDateTime:
+          _editReturnDateTime!,
+
+      pickupLocation:
+          _pickupLocationController.text
+              .trim(),
+
+      returnLocation:
+          _returnLocationController.text
+              .trim(),
+
+      dailyRate:
+          dailyRate,
+
+      hourlyRate:
+          hourlyRate,
+
+      rentalDays:
+          rentalDays,
+
+      rentalHours:
+          rentalHours,
+
+      baseRentalAmount:
+          rentalAmount,
+
+      securityDeposit:
+          securityDeposit,
+
+      extraKmCharge:
+          extraKm,
+
+      fuelCharge:
+          fuel,
+
+      lateReturnCharge:
+          lateReturn,
+
+      damageCharge:
+          damage,
+
+      otherCharges:
+          other,
+
+      discount:
+          discount,
+
+      tax:
+          tax,
+
+      totalAmount:
+          totalAmount,
+
+      paidAmount:
+          paidAmount,
+
+      agreementNumber:
+          _agreementNumberController.text
+              .trim(),
+
+      termsAccepted:
+          _editTermsAccepted,
+
+      licenseNumber:
+          _licenseNumberController.text
+                  .trim()
+                  .isEmpty
+              ? null
+              : _licenseNumberController.text
+                  .trim(),
+
+      licenseExpiryDate:
+          _editLicenseExpiryDate,
+
+      licenseImageUrl:
+          _booking.licenseImageUrl,
+
+      idProofType:
+          _idProofTypeController.text
+                  .trim()
+                  .isEmpty
+              ? null
+              : _idProofTypeController.text
+                  .trim(),
+
+      idProofNumber:
+          _idProofNumberController.text
+                  .trim()
+                  .isEmpty
+              ? null
+              : _idProofNumberController.text
+                  .trim(),
+
+      idProofImageUrl:
+          _booking.idProofImageUrl,
+
+      customerNotes:
+          _customerNotesController.text
+                  .trim()
+                  .isEmpty
+              ? null
+              : _customerNotesController.text
+                  .trim(),
+
+      internalNotes:
+          _internalNotesController.text
+                  .trim()
+                  .isEmpty
+              ? null
+              : _internalNotesController.text
+                  .trim(),
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _booking = updated;
+      _isEditing = false;
+    });
+
+    _initializeEditControllers();
+
+    _showSuccess(
+      'Booking updated successfully.',
+    );
+  } on BookingConflictException catch (
+      exception) {
+    if (!mounted) return;
+
+    final conflict =
+        exception.firstConflict;
+
+    _showError(
+      conflict == null
+          ? 'Vehicle is not available for the selected period.'
+          : 'Vehicle is already booked from '
+              '${_dateTime(conflict.pickupDateTime)} '
+              'to '
+              '${_dateTime(conflict.returnDateTime)}.',
+    );
+  } catch (error) {
+    if (!mounted) return;
+
+    _showError(
+      _cleanError(
+        error.toString(),
+      ),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isSaving = false;
+      });
+    }
+  }
+}
+Future<List<Map<String, dynamic>>> _loadEditLogs() async {
+  final snapshot = await FirebaseFirestore.instance
+      .collection('bookings')
+      .doc(_booking.id)
+      .collection('editLogs')
+      .orderBy('editedAt', descending: true)
+      .get();
+
+  return snapshot.docs
+      .map(
+        (doc) => {
+          'id': doc.id,
+          ...doc.data(),
+        },
+      )
+      .toList();
+}
+Widget _buildEditHistory() {
+  return FutureBuilder<List<Map<String, dynamic>>>(
+    future: _loadEditLogs(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState ==
+          ConnectionState.waiting) {
+        return _sectionCard(
+          title: 'Edit History',
+          icon: Icons.history_rounded,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(
+              vertical: 12,
+            ),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      if (snapshot.hasError) {
+        return _sectionCard(
+          title: 'Edit History',
+          icon: Icons.history_rounded,
+          child: const Text(
+            'Unable to load edit history.',
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        );
+      }
+
+      final logs =
+          snapshot.data ?? [];
+
+      if (logs.isEmpty) {
+        return _sectionCard(
+          title: 'Edit History',
+          icon: Icons.history_rounded,
+          child: const Text(
+            'No changes have been made to this booking.',
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        );
+      }
+
+      return _sectionCard(
+        title: 'Edit History',
+        icon: Icons.history_rounded,
+        child: Column(
+          children: [
+            for (int i = 0;
+                i < logs.length;
+                i++) ...[
+              _buildEditLogItem(
+                logs[i],
+              ),
+
+              if (i != logs.length - 1)
+                const Divider(
+                  height: 24,
+                ),
+            ],
+          ],
+        ),
+      );
+    },
+  );
+}
+Widget _buildEditLogItem(
+  Map<String, dynamic> log,
+) {
+  final editedBy =
+      log['editedByName'] ??
+      'Unknown user';
+
+  final editedAt =
+      _timestampToDateTime(
+        log['editedAt'],
+      );
+
+  final changes =
+      (log['changes'] as List?)
+          ?.whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(
+              item,
+            ),
+          )
+          .toList() ??
+      [];
+
+  return Column(
+    crossAxisAlignment:
+        CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color:
+                  AppColors.primary.withValues(
+                alpha: 0.08,
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.person_outline_rounded,
+              size: 17,
+              color: AppColors.primary,
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  editedBy.toString(),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight:
+                        FontWeight.w800,
+                    color:
+                        AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  editedAt == null
+                      ? 'Unknown time'
+                      : DateFormat(
+                          'dd MMM yyyy • hh:mm a',
+                        ).format(editedAt),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+
+      if (changes.isNotEmpty) ...[
+        const SizedBox(height: 12),
+
+        ...changes.map(
+          (change) {
+            final field =
+                change['field']
+                    ?.toString() ??
+                'Field';
+
+            final previous =
+                change['previous']
+                    ?.toString() ??
+                '—';
+
+            final updated =
+                change['updated']
+                    ?.toString() ??
+                '—';
+
+            return Padding(
+              padding:
+                  const EdgeInsets.only(
+                bottom: 7,
+              ),
+              child: Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      field,
+                      style:
+                          const TextStyle(
+                        fontSize: 10,
+                        fontWeight:
+                            FontWeight.w700,
+                        color:
+                            AppColors
+                                .textSecondary,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      '$previous  →  $updated',
+                      style:
+                          const TextStyle(
+                        fontSize: 10,
+                        fontWeight:
+                            FontWeight.w700,
+                        color:
+                            AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    ],
+  );
+}
+DateTime? _timestampToDateTime(
+  dynamic value,
+) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+
+  if (value is DateTime) {
+    return value;
+  }
+
+  return null;
+}
 
   // ============================================================
   // MAIN ACTION
@@ -88,7 +844,85 @@ class _BookingDetailsScreenState
   // Pickup Pending:
   //   Open PickupScreen -> record KM/fuel/checklist -> Pickup
   // ============================================================
+void _showError(String message) {
+  if (!mounted) return;
 
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.danger,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        duration: const Duration(
+          seconds: 3,
+        ),
+      ),
+    );
+}
+
+void _showSuccess(String message) {
+  if (!mounted) return;
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(
+              Icons.check_circle_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        duration: const Duration(
+          seconds: 2,
+        ),
+      ),
+    );
+}
   Future<void> _handleMainAction() async {
     switch (_booking.status) {
       case BookingStatus.booking:
@@ -571,6 +1405,7 @@ Future<void> _startReturn() async {
               height: AppSpacing.lg,
             ),
             _buildAuditCard(),
+            _buildEditHistory(),
           ],
         ),
       ),
@@ -615,32 +1450,56 @@ Future<void> _startReturn() async {
               AppColors.textPrimary,
         ),
       ),
-      actions: [
-        IconButton(
-          tooltip:
-              'Refresh',
-          onPressed:
-              _isRefreshing
-                  ? null
-                  : _refreshBooking,
-          icon:
-              _isRefreshing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child:
-                          CircularProgressIndicator(
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.refresh_rounded,
-                    ),
-        ),
-        const SizedBox(
-          width: AppSpacing.sm,
-        ),
-      ],
+     actions: [
+  IconButton(
+    tooltip:
+        _isEditing
+            ? 'Cancel'
+            : 'Edit Booking',
+    onPressed:
+        _isSaving
+            ? null
+            : () {
+                if (_isEditing) {
+                  _cancelEditing();
+                } else {
+                  setState(() {
+                    _isEditing = true;
+                  });
+                }
+              },
+    icon: Icon(
+      _isEditing
+          ? Icons.close_rounded
+          : Icons.edit_rounded,
+    ),
+  ),
+
+  IconButton(
+    tooltip: 'Refresh',
+    onPressed:
+        _isRefreshing || _isEditing
+            ? null
+            : _refreshBooking,
+    icon:
+        _isRefreshing
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child:
+                    CircularProgressIndicator(
+                  strokeWidth: 2,
+                ),
+              )
+            : const Icon(
+                Icons.refresh_rounded,
+              ),
+  ),
+
+  const SizedBox(
+    width: AppSpacing.sm,
+  ),
+],
     );
   }
 
@@ -895,48 +1754,328 @@ Future<void> _startReturn() async {
   // ============================================================
 
   Widget _buildRentalPeriod() {
+  if (_isEditing) {
     return _sectionCard(
-      title:
-          'Rental Period',
-      icon:
-          Icons.schedule_rounded,
-      child:
-          Column(
+      title: 'Rental Period',
+      icon: Icons.schedule_rounded,
+      child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child:
-                    _dateBlock(
-                  title:
-                      'PICKUP',
-                  icon:
-                      Icons.login_rounded,
-                  dateTime:
-                      _booking.pickupDateTime,
-                ),
+          _editDateTimeField(
+            label: 'Pickup Date & Time',
+            value: _editPickupDateTime,
+            icon: Icons.login_rounded,
+            onTap: () async {
+              final value =
+                  await _pickDateTime(
+                _editPickupDateTime ??
+                    DateTime.now(),
+              );
+
+              if (value != null) {
+                setState(() {
+                  _editPickupDateTime = value;
+                });
+              }
+            },
+          ),
+
+          const SizedBox(height: 4),
+
+          _editDateTimeField(
+            label: 'Return Date & Time',
+            value: _editReturnDateTime,
+            icon: Icons.logout_rounded,
+            onTap: () async {
+              final value =
+                  await _pickDateTime(
+                _editReturnDateTime ??
+                    (_editPickupDateTime ??
+                        DateTime.now())
+                    .add(
+                      const Duration(days: 1),
+                    ),
+              );
+
+              if (value != null) {
+                setState(() {
+                  _editReturnDateTime = value;
+                });
+              }
+            },
+          ),
+
+          const SizedBox(height: 8),
+
+          _buildEditDuration(),
+        ],
+      ),
+    );
+  }
+
+  return _sectionCard(
+    title: 'Rental Period',
+    icon: Icons.schedule_rounded,
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _dateBlock(
+                title: 'PICKUP',
+                icon: Icons.login_rounded,
+                dateTime:
+                    _booking.pickupDateTime,
               ),
-              _durationBadge(),
-              Expanded(
-                child:
-                    _dateBlock(
-                  title:
-                      'RETURN',
-                  icon:
-                      Icons.logout_rounded,
-                  dateTime:
-                      _booking.returnDateTime,
-                  alignRight:
-                      true,
-                ),
+            ),
+            _durationBadge(),
+            Expanded(
+              child: _dateBlock(
+                title: 'RETURN',
+                icon: Icons.logout_rounded,
+                dateTime:
+                    _booking.returnDateTime,
+                alignRight: true,
               ),
-            ],
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+Widget _editDateTimeField({
+  required String label,
+  required DateTime? value,
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius:
+        BorderRadius.circular(12),
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 13,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius:
+            BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.border,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: AppColors.primary,
+          ),
+
+          const SizedBox(width: 10),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight:
+                        FontWeight.w700,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  value == null
+                      ? 'Select date & time'
+                      : _dateTime(value),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight:
+                        FontWeight.w800,
+                    color:
+                        AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const Icon(
+            Icons.calendar_month_rounded,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+Future<DateTime?> _pickDateTime(
+  DateTime initialDate,
+) async {
+  final now = DateTime.now();
+
+  final date = await showDatePicker(
+    context: context,
+    initialDate:
+        initialDate.isBefore(now)
+            ? now
+            : initialDate,
+    firstDate: now,
+    lastDate: DateTime(2100),
+  );
+
+  if (date == null) {
+    return null;
+  }
+
+  if (!mounted) {
+    return null;
+  }
+
+  final time = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.fromDateTime(
+      initialDate,
+    ),
+  );
+
+  if (time == null) {
+    return null;
+  }
+
+  return DateTime(
+    date.year,
+    date.month,
+    date.day,
+    time.hour,
+    time.minute,
+  );
+}
+Widget _buildEditDuration() {
+  final pickup = _editPickupDateTime;
+  final returnDate = _editReturnDateTime;
+
+  if (pickup == null || returnDate == null) {
+    return const SizedBox.shrink();
+  }
+
+  final difference =
+      returnDate.difference(pickup);
+
+  if (difference.isNegative ||
+      difference.inMinutes == 0) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:
+            AppColors.danger.withValues(
+          alpha: 0.06,
+        ),
+        borderRadius:
+            BorderRadius.circular(12),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: AppColors.danger,
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Return must be after pickup.',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.danger,
+            ),
           ),
         ],
       ),
     );
   }
 
+  final days = difference.inDays;
+  final hours = difference.inHours % 24;
+
+  String duration;
+
+  if (days > 0 && hours > 0) {
+    duration = '$days days $hours hours';
+  } else if (days > 0) {
+    duration = '$days days';
+  } else {
+    duration = '${difference.inHours} hours';
+  }
+
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: 10,
+    ),
+    decoration: BoxDecoration(
+      color:
+          AppColors.primary.withValues(
+        alpha: 0.06,
+      ),
+      borderRadius:
+          BorderRadius.circular(12),
+      border: Border.all(
+        color:
+            AppColors.primary.withValues(
+          alpha: 0.12,
+        ),
+      ),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.timelapse_rounded,
+          size: 17,
+          color: AppColors.primary,
+        ),
+
+        const SizedBox(width: 8),
+
+        const Text(
+          'Rental Duration',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color:
+                AppColors.textSecondary,
+          ),
+        ),
+
+        const Spacer(),
+
+        Text(
+          duration,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color:
+                AppColors.textPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
+}
   Widget _dateBlock({
     required String title,
     required IconData icon,
@@ -1101,64 +2240,76 @@ Future<void> _startReturn() async {
   // ============================================================
 
   Widget _buildCustomerCard() {
+  if (_isEditing) {
     return _sectionCard(
-      title:
-          'Customer',
-      icon:
-          Icons.person_outline_rounded,
-      child:
-          Row(
+      title: 'Customer',
+      icon: Icons.person_outline_rounded,
+      child: Column(
         children: [
-          _avatar(
-            _booking.customerName,
+          _editField(
+            label: 'Customer Name',
+            controller:
+                _customerNameController,
           ),
-          const SizedBox(
-            width: 12,
-          ),
-          Expanded(
-            child:
-                Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _booking.customerName,
-                  style:
-                      const TextStyle(
-                    fontSize: 14,
-                    fontWeight:
-                        FontWeight.w800,
-                    color:
-                        AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(
-                  height: 4,
-                ),
-                Text(
-                  _booking.customerPhone,
-                  style:
-                      const TextStyle(
-                    fontSize: 11,
-                    color:
-                        AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _smallActionIcon(
-            icon:
-                Icons.phone_outlined,
-            onTap:
-                () => _showMessage(
-              'Customer call action can be connected here.',
-            ),
+
+          _editField(
+            label: 'Phone Number',
+            controller:
+                _customerPhoneController,
+            keyboardType:
+                TextInputType.phone,
           ),
         ],
       ),
     );
   }
+
+  return _sectionCard(
+    title: 'Customer',
+    icon: Icons.person_outline_rounded,
+    child: Row(
+      children: [
+        _avatar(
+          _booking.customerName,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                _booking.customerName,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight:
+                      FontWeight.w800,
+                  color:
+                      AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _booking.customerPhone,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _smallActionIcon(
+          icon: Icons.phone_outlined,
+          onTap: () => _showMessage(
+            'Customer call action can be connected here.',
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _avatar(
     String name,
@@ -1349,42 +2500,122 @@ Future<void> _startReturn() async {
   // LOCATIONS
   // ============================================================
 
-  Widget _buildLocationCard() {
+Widget _buildLocationCard() {
+  if (_isEditing) {
     return _sectionCard(
-      title:
-          'Locations',
-      icon:
-          Icons.location_on_outlined,
-      child:
-          Column(
+      title: 'Locations',
+      icon: Icons.location_on_outlined,
+      child: Column(
         children: [
-          _locationRow(
-            icon:
-                Icons.radio_button_checked_rounded,
-            title:
-                'Pickup Location',
-            value:
-                _booking.pickupLocation,
+          _editField(
+            label: 'Pickup Location',
+            controller:
+                _pickupLocationController,
+            maxLines: 2,
           ),
-          const SizedBox(
-            height: 12,
-          ),
-          _connectorLine(),
-          const SizedBox(
-            height: 12,
-          ),
-          _locationRow(
-            icon:
-                Icons.location_on_rounded,
-            title:
-                'Return Location',
-            value:
-                _booking.returnLocation,
+
+          _editField(
+            label: 'Return Location',
+            controller:
+                _returnLocationController,
+            maxLines: 2,
           ),
         ],
       ),
     );
   }
+
+  return _sectionCard(
+    title: 'Locations',
+    icon: Icons.location_on_outlined,
+    child: Column(
+      children: [
+        _locationRow(
+          icon:
+              Icons.radio_button_checked_rounded,
+          title: 'Pickup Location',
+          value:
+              _booking.pickupLocation,
+        ),
+        const SizedBox(height: 12),
+        _connectorLine(),
+        const SizedBox(height: 12),
+        _locationRow(
+          icon:
+              Icons.location_on_rounded,
+          title: 'Return Location',
+          value:
+              _booking.returnLocation,
+        ),
+      ],
+    ),
+  );
+}
+  Widget _editField({
+  required String label,
+  required TextEditingController controller,
+  TextInputType keyboardType =
+      TextInputType.text,
+  int maxLines = 1,
+  String? prefixText,
+  bool enabled = true,
+}) {
+  return Padding(
+    padding: const EdgeInsets.only(
+      bottom: 12,
+    ),
+    child: TextFormField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textPrimary,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixText: prefixText,
+        labelStyle: const TextStyle(
+          fontSize: 11,
+          color: AppColors.textSecondary,
+        ),
+        filled: true,
+        fillColor: AppColors.background,
+        contentPadding:
+            const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius:
+              BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: AppColors.border,
+          ),
+        ),
+        enabledBorder:
+            OutlineInputBorder(
+          borderRadius:
+              BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: AppColors.border,
+          ),
+        ),
+        focusedBorder:
+            OutlineInputBorder(
+          borderRadius:
+              BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: AppColors.primary,
+            width: 1.5,
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _locationRow({
     required IconData icon,
@@ -1761,133 +2992,394 @@ Future<void> _startReturn() async {
   // ============================================================
 
   Widget _buildPricingCard() {
-    final additional =
-        _booking.extraKmCharge +
-            _booking.fuelCharge +
-            _booking.lateReturnCharge +
-            _booking.damageCharge +
-            _booking.otherCharges;
-
+  if (!_isEditing) {
     return _sectionCard(
-      title:
-          'Pricing & Payment',
-      icon:
-          Icons.payments_outlined,
-      child:
-          Column(
-        children: [
-          _priceRow(
-            'Base Rental',
-            _booking.baseRentalAmount,
+      title: 'Pricing & Payment',
+      icon: Icons.payments_outlined,
+      child: _infoGrid([
+        _InfoItem(
+          'Daily Rate',
+          _money(_booking.dailyRate),
+        ),
+        _InfoItem(
+          'Hourly Rate',
+          _booking.hourlyRate == null
+              ? '—'
+              : _money(_booking.hourlyRate!),
+        ),
+        _InfoItem(
+          'Rental Amount',
+          _money(_booking.baseRentalAmount),
+        ),
+        _InfoItem(
+          'Security Deposit',
+          _money(_booking.securityDeposit),
+        ),
+        _InfoItem(
+          'Extra KM',
+          _money(_booking.extraKmCharge),
+        ),
+        _InfoItem(
+          'Fuel Charge',
+          _money(_booking.fuelCharge),
+        ),
+        _InfoItem(
+          'Late Return',
+          _money(_booking.lateReturnCharge),
+        ),
+        _InfoItem(
+          'Damage',
+          _money(_booking.damageCharge),
+        ),
+        _InfoItem(
+          'Other Charges',
+          _money(_booking.otherCharges),
+        ),
+        _InfoItem(
+          'Discount',
+          _money(_booking.discount),
+        ),
+        _InfoItem(
+          'Tax',
+          _money(_booking.tax),
+        ),
+        _InfoItem(
+          'Total Amount',
+          _money(_booking.totalAmount),
+        ),
+        _InfoItem(
+          'Amount Paid',
+          _money(_booking.paidAmount),
+        ),
+        _InfoItem(
+          'Pending',
+          _money(_booking.pendingAmount),
+        ),
+        _InfoItem(
+          'Payment Status',
+          _paymentStatusLabel(
+            _booking.paymentStatus,
           ),
-          _priceRow(
-            'Security Deposit',
-            _booking.securityDeposit,
-          ),
-          if (_booking.extraKmCharge > 0)
-            _priceRow(
-              'Extra KM',
-              _booking.extraKmCharge,
-            ),
-          if (_booking.fuelCharge > 0)
-            _priceRow(
-              'Fuel',
-              _booking.fuelCharge,
-            ),
-          if (_booking.lateReturnCharge > 0)
-            _priceRow(
-              'Late Return',
-              _booking.lateReturnCharge,
-            ),
-          if (_booking.damageCharge > 0)
-            _priceRow(
-              'Damage',
-              _booking.damageCharge,
-            ),
-          if (_booking.otherCharges > 0)
-            _priceRow(
-              'Other Charges',
-              _booking.otherCharges,
-            ),
-          if (additional > 0)
-            const SizedBox(
-              height: 4,
-            ),
-          if (_booking.discount > 0)
-            _priceRow(
-              'Discount',
-              -_booking.discount,
-              valueColor:
-                  AppColors.success,
-            ),
-          if (_booking.tax > 0)
-            _priceRow(
-              'Tax',
-              _booking.tax,
-            ),
-          const SizedBox(
-            height: 10,
-          ),
-          Container(
-            height: 1,
-            color:
-                AppColors.border,
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-          _priceRow(
-            'Total Amount',
-            _booking.totalAmount,
-            bold:
-                true,
-          ),
-          const SizedBox(
-            height: 8,
-          ),
-          _priceRow(
-            'Paid',
-            _booking.paidAmount,
-            valueColor:
-                AppColors.success,
-          ),
-          _priceRow(
-            'Pending',
-            _booking.pendingAmount,
-            valueColor:
-                _booking.pendingAmount >
-                        0
-                    ? AppColors.warning
-                    : AppColors.success,
-            bold:
-                true,
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-          Row(
-            children: [
-              const Text(
-                'Payment Status',
-                style:
-                    TextStyle(
-                  fontSize: 10,
-                  fontWeight:
-                      FontWeight.w700,
-                  color:
-                      AppColors.textSecondary,
-                ),
-              ),
-              const Spacer(),
-              _paymentBadge(
-                _booking.paymentStatus,
-              ),
-            ],
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
+
+  return _sectionCard(
+    title: 'Pricing & Payment',
+    icon: Icons.payments_outlined,
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _editField(
+                label: 'Daily Rate',
+                controller:
+                    _dailyRateController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _editField(
+                label: 'Hourly Rate',
+                controller:
+                    _hourlyRateController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        Row(
+          children: [
+            Expanded(
+              child: _editField(
+                label: 'Rental Amount',
+                controller:
+                    _baseRentalController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _editField(
+                label: 'Security Deposit',
+                controller:
+                    _securityDepositController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 4),
+
+        // ------------------------------------------
+        // ADDITIONAL CHARGES
+        // ------------------------------------------
+
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius:
+                BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.border,
+            ),
+          ),
+          child: Theme(
+            data:
+                Theme.of(context).copyWith(
+              dividerColor:
+                  Colors.transparent,
+            ),
+            child: ExpansionTile(
+              tilePadding:
+                  const EdgeInsets.symmetric(
+                horizontal: 12,
+              ),
+              childrenPadding:
+                  const EdgeInsets.fromLTRB(
+                12,
+                0,
+                12,
+                8,
+              ),
+              leading: const Icon(
+                Icons.tune_rounded,
+                size: 19,
+              ),
+              title: const Text(
+                'Additional Charges',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      FontWeight.w800,
+                ),
+              ),
+              subtitle: const Text(
+                'Optional charges, discount & tax',
+                style: TextStyle(
+                  fontSize: 10,
+                ),
+              ),
+              children: [
+                _editField(
+                  label: 'Extra KM Charge',
+                  controller:
+                      _extraKmController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Fuel Charge',
+                  controller:
+                      _fuelChargeController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Late Return Charge',
+                  controller:
+                      _lateReturnController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Damage Charge',
+                  controller:
+                      _damageChargeController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Other Charges',
+                  controller:
+                      _otherChargesController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Discount',
+                  controller:
+                      _discountController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+
+                _editField(
+                  label: 'Tax',
+                  controller:
+                      _taxController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        // ------------------------------------------
+        // TOTAL — EDITABLE
+        // ------------------------------------------
+
+        _editField(
+          label: 'Total Amount',
+          controller:
+              _totalAmountController,
+          keyboardType:
+              const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
+        ),
+
+        const SizedBox(height: 2),
+
+        Align(
+          alignment:
+              Alignment.centerRight,
+          child: Text(
+            'Final booking amount',
+            style: const TextStyle(
+              fontSize: 9,
+              color:
+                  AppColors.textSecondary,
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        _editField(
+          label: 'Amount Paid',
+          controller:
+              _paidAmountController,
+          keyboardType:
+              const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
+        ),
+
+        const SizedBox(height: 4),
+
+        _buildEditPendingAmount(),
+      ],
+    ),
+  );
+}
+Widget _buildEditPendingAmount() {
+  final total =
+      double.tryParse(
+            _totalAmountController.text
+                .trim(),
+          ) ??
+          0;
+
+  final paid =
+      double.tryParse(
+            _paidAmountController.text
+                .trim(),
+          ) ??
+          0;
+
+  final pending =
+      (total - paid) < 0
+          ? 0.0
+          : (total - paid);
+
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: 11,
+    ),
+    decoration: BoxDecoration(
+      color: AppColors.background,
+      borderRadius:
+          BorderRadius.circular(12),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.account_balance_wallet_outlined,
+          size: 17,
+          color: AppColors.textSecondary,
+        ),
+        const SizedBox(width: 8),
+        const Expanded(
+          child: Text(
+            'Pending Amount',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color:
+                  AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Text(
+          _money(pending),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+String _paymentStatusLabel(
+  dynamic status,
+) {
+  return status
+      .toString()
+      .split('.')
+      .last
+      .replaceAll(
+        RegExp(r'([a-z])([A-Z])'),
+        r'$1 $2',
+      )
+      .toUpperCase();
+}
 
   Widget _priceRow(
     String label,
@@ -2585,60 +4077,50 @@ Future<void> _startReturn() async {
   // ============================================================
 
   Widget _buildBottomAction(
-    Color statusColor,
-  ) {
-    final enabled =
-        _mainActionEnabled();
+  Color statusColor,
+) {
+  // ==========================================================
+  // EDIT MODE
+  // ==========================================================
 
+  if (_isEditing) {
     return SafeArea(
-      child:
-          Container(
-        padding:
-            const EdgeInsets.fromLTRB(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(
           AppSpacing.xl,
           12,
           AppSpacing.xl,
           12,
         ),
-        decoration:
-            BoxDecoration(
-          color:
-              AppColors.surface,
-          border:
-              Border(
-            top:
-                BorderSide(
-              color:
-                  AppColors.border,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border(
+            top: BorderSide(
+              color: AppColors.border,
             ),
           ),
         ),
-        child:
-            SizedBox(
-          width:
-              double.infinity,
+        child: SizedBox(
+          width: double.infinity,
           height: 50,
-          child:
-              ElevatedButton(
+          child: ElevatedButton(
             onPressed:
-                enabled
-                    ? _handleMainAction
-                    : null,
-            style:
-                ElevatedButton.styleFrom(
-              minimumSize:
-                  const Size(
+                _isSaving
+                    ? null
+                    : _saveChanges,
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(
                 double.infinity,
                 50,
               ),
               backgroundColor:
-                  enabled
-                      ? statusColor
-                      : AppColors.background,
+                  AppColors.primary,
               foregroundColor:
-                  enabled
-                      ? Colors.white
-                      : AppColors.textSecondary,
+                  Colors.white,
+              disabledBackgroundColor:
+                  AppColors.background,
+              disabledForegroundColor:
+                  AppColors.textSecondary,
               elevation: 0,
               shape:
                   RoundedRectangleBorder(
@@ -2649,36 +4131,217 @@ Future<void> _startReturn() async {
               ),
             ),
             child:
-                Row(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
-              children: [
-                Text(
-                  _mainActionLabel(),
-                  style:
-                      const TextStyle(
-                    fontSize: 12,
-                    fontWeight:
-                        FontWeight.w800,
-                  ),
-                ),
-                if (enabled) ...[
-                  const SizedBox(
-                    width: 7,
-                  ),
-                  const Icon(
-                    Icons
-                        .arrow_forward_rounded,
-                    size: 18,
-                  ),
-                ],
-              ],
-            ),
+                _isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child:
+                            CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment
+                                .center,
+                        children: [
+                          Icon(
+                            Icons
+                                .check_rounded,
+                            size: 19,
+                          ),
+                          SizedBox(
+                            width: 8,
+                          ),
+                          Text(
+                            'Save Changes',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight:
+                                  FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
           ),
         ),
       ),
     );
   }
+
+  // ==========================================================
+  // NORMAL BOOKING MODE
+  // ==========================================================
+
+  final enabled =
+      _mainActionEnabled();
+
+  return SafeArea(
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        12,
+        AppSpacing.xl,
+        12,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.border,
+          ),
+        ),
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: ElevatedButton(
+          onPressed:
+              enabled
+                  ? _handleMainAction
+                  : null,
+          style:
+              ElevatedButton.styleFrom(
+            minimumSize: const Size(
+              double.infinity,
+              50,
+            ),
+            backgroundColor:
+                enabled
+                    ? statusColor
+                    : AppColors.background,
+            foregroundColor:
+                enabled
+                    ? Colors.white
+                    : AppColors.textSecondary,
+            disabledBackgroundColor:
+                AppColors.background,
+            disabledForegroundColor:
+                AppColors.textSecondary,
+            elevation: 0,
+            shape:
+                RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.circular(
+                AppRadius.lg,
+              ),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            children: [
+              Text(
+                _mainActionLabel(),
+                style:
+                    const TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      FontWeight.w800,
+                ),
+              ),
+              if (enabled) ...[
+                const SizedBox(
+                  width: 7,
+                ),
+                const Icon(
+                  Icons
+                      .arrow_forward_rounded,
+                  size: 18,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+Widget _buildSaveChangesButton() {
+  return SafeArea(
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        12,
+        AppSpacing.xl,
+        12,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.border,
+          ),
+        ),
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: ElevatedButton(
+          onPressed:
+              _isSaving
+                  ? null
+                  : _saveChanges,
+          style:
+              ElevatedButton.styleFrom(
+            minimumSize:
+                const Size(
+              double.infinity,
+              50,
+            ),
+            backgroundColor:
+                AppColors.primary,
+            foregroundColor:
+                Colors.white,
+            elevation: 0,
+            shape:
+                RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.circular(
+                AppRadius.lg,
+              ),
+            ),
+          ),
+          child:
+              _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child:
+                          CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Row(
+                      mainAxisAlignment:
+                          MainAxisAlignment
+                              .center,
+                      children: [
+                        Icon(
+                          Icons
+                              .check_rounded,
+                          size: 19,
+                        ),
+                        SizedBox(
+                          width: 8,
+                        ),
+                        Text(
+                          'Save Changes',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight:
+                                FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+        ),
+      ),
+    ),
+  );
+}
 }
 
 // ============================================================

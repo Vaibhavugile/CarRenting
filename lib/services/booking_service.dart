@@ -1245,7 +1245,640 @@ await _vehicles
   // Vehicle:
   // reserved → rented
   // ============================================================
+Future<BookingModel> updateBooking({
+  required String bookingId,
 
+  required String customerName,
+  required String customerPhone,
+
+  required DateTime pickupDateTime,
+  required DateTime returnDateTime,
+
+  required String pickupLocation,
+  required String returnLocation,
+
+  required double dailyRate,
+  double? hourlyRate,
+
+  required int rentalDays,
+  required int rentalHours,
+
+  required double baseRentalAmount,
+  required double securityDeposit,
+
+  double extraKmCharge = 0,
+  double fuelCharge = 0,
+  double lateReturnCharge = 0,
+  double damageCharge = 0,
+  double otherCharges = 0,
+
+  double discount = 0,
+  double tax = 0,
+
+  required double totalAmount,
+  double paidAmount = 0,
+
+  required String agreementNumber,
+  bool termsAccepted = false,
+
+  String? licenseNumber,
+  DateTime? licenseExpiryDate,
+  String? licenseImageUrl,
+
+  String? idProofType,
+  String? idProofNumber,
+  String? idProofImageUrl,
+
+  String? customerNotes,
+  String? internalNotes,
+}) async {
+  // ----------------------------------------------------------
+  // LOGIN
+  // ----------------------------------------------------------
+
+  final user = currentUser;
+
+  if (user == null) {
+    throw Exception(
+      'You must be logged in.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // VALIDATE DATES
+  // ----------------------------------------------------------
+
+  if (!returnDateTime.isAfter(
+    pickupDateTime,
+  )) {
+    throw Exception(
+      'Return time must be after pickup time.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // CURRENT USER / BUSINESS
+  // ----------------------------------------------------------
+
+  final userModel =
+      await _getCurrentUserModel();
+
+  final businessId =
+      userModel.businessId;
+
+  final branchCode =
+      userModel.branchCode;
+
+  if (businessId == null ||
+      businessId.isEmpty) {
+    throw Exception(
+      'No business is assigned to your account.',
+    );
+  }
+
+  if (branchCode == null ||
+      branchCode.isEmpty) {
+    throw Exception(
+      'No branch is assigned to your account.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // GET CURRENT BOOKING
+  // ----------------------------------------------------------
+
+  final bookingRef =
+      _bookings.doc(bookingId);
+
+  final snapshot =
+      await bookingRef.get();
+
+  if (!snapshot.exists) {
+    throw Exception(
+      'Booking not found.',
+    );
+  }
+
+  final booking =
+      BookingModel.fromFirestore(
+    snapshot,
+  );
+
+  // ----------------------------------------------------------
+  // SECURITY CHECK
+  // ----------------------------------------------------------
+
+  if (booking.businessId != businessId ||
+      booking.branchCode != branchCode) {
+    throw Exception(
+      'This booking does not belong to your branch.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // VALIDATE AMOUNTS
+  // ----------------------------------------------------------
+
+  if (dailyRate < 0 ||
+      (hourlyRate ?? 0) < 0 ||
+      baseRentalAmount < 0 ||
+      securityDeposit < 0 ||
+      extraKmCharge < 0 ||
+      fuelCharge < 0 ||
+      lateReturnCharge < 0 ||
+      damageCharge < 0 ||
+      otherCharges < 0 ||
+      discount < 0 ||
+      tax < 0 ||
+      totalAmount < 0 ||
+      paidAmount < 0) {
+    throw Exception(
+      'Amounts cannot be negative.',
+    );
+  }
+
+  if (paidAmount > totalAmount) {
+    throw Exception(
+      'Paid amount cannot be greater than the total amount.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // CHECK DATE AVAILABILITY
+  //
+  // IMPORTANT:
+  // Exclude this booking itself.
+  // ----------------------------------------------------------
+
+  final availability =
+      await checkAvailability(
+    vehicleId:
+        booking.vehicleId,
+    requestedPickup:
+        pickupDateTime,
+    requestedReturn:
+        returnDateTime,
+    excludeBookingId:
+        booking.id,
+  );
+
+  if (!availability.isAvailable) {
+    throw BookingConflictException(
+      availability.conflicts,
+    );
+  }
+
+  // ----------------------------------------------------------
+  // PAYMENT
+  // ----------------------------------------------------------
+
+  final pendingAmount =
+      _calculatePendingAmount(
+    totalAmount:
+        totalAmount,
+    paidAmount:
+        paidAmount,
+  );
+
+  final paymentStatus =
+      _calculatePaymentStatus(
+    totalAmount:
+        totalAmount,
+    paidAmount:
+        paidAmount,
+  );
+
+  // ----------------------------------------------------------
+  // TIME
+  // ----------------------------------------------------------
+
+  final now =
+      DateTime.now();
+
+  // ----------------------------------------------------------
+  // USER WHO EDITED
+  // ----------------------------------------------------------
+
+  final editorName =
+      user.displayName?.trim().isNotEmpty == true
+          ? user.displayName!.trim()
+          : user.email?.trim().isNotEmpty == true
+              ? user.email!.trim()
+              : user.uid;
+
+  // ----------------------------------------------------------
+  // CHANGES
+  // ----------------------------------------------------------
+
+  final changes =
+      <Map<String, dynamic>>[];
+
+  void addChange({
+    required String field,
+    required dynamic oldValue,
+    required dynamic newValue,
+  }) {
+    final oldText =
+        oldValue?.toString() ?? '';
+
+    final newText =
+        newValue?.toString() ?? '';
+
+    if (oldText != newText) {
+      changes.add({
+        'field': field,
+        'previous': oldValue,
+        'updated': newValue,
+        'updatedBy': editorName,
+        'updatedByUid': user.uid,
+      });
+    }
+  }
+
+  addChange(
+    field: 'Customer Name',
+    oldValue:
+        booking.customerName,
+    newValue:
+        customerName,
+  );
+
+  addChange(
+    field: 'Customer Phone',
+    oldValue:
+        booking.customerPhone,
+    newValue:
+        customerPhone,
+  );
+
+  addChange(
+    field: 'Pickup Date',
+    oldValue:
+        booking.pickupDateTime
+            .toIso8601String(),
+    newValue:
+        pickupDateTime
+            .toIso8601String(),
+  );
+
+  addChange(
+    field: 'Return Date',
+    oldValue:
+        booking.returnDateTime
+            .toIso8601String(),
+    newValue:
+        returnDateTime
+            .toIso8601String(),
+  );
+
+  addChange(
+    field: 'Pickup Location',
+    oldValue:
+        booking.pickupLocation,
+    newValue:
+        pickupLocation,
+  );
+
+  addChange(
+    field: 'Return Location',
+    oldValue:
+        booking.returnLocation,
+    newValue:
+        returnLocation,
+  );
+
+  addChange(
+    field: 'Daily Rate',
+    oldValue:
+        booking.dailyRate,
+    newValue:
+        dailyRate,
+  );
+
+  addChange(
+    field: 'Hourly Rate',
+    oldValue:
+        booking.hourlyRate,
+    newValue:
+        hourlyRate,
+  );
+
+  addChange(
+    field: 'Rental Amount',
+    oldValue:
+        booking.baseRentalAmount,
+    newValue:
+        baseRentalAmount,
+  );
+
+  addChange(
+    field: 'Security Deposit',
+    oldValue:
+        booking.securityDeposit,
+    newValue:
+        securityDeposit,
+  );
+
+  addChange(
+    field: 'Extra KM',
+    oldValue:
+        booking.extraKmCharge,
+    newValue:
+        extraKmCharge,
+  );
+
+  addChange(
+    field: 'Fuel Charge',
+    oldValue:
+        booking.fuelCharge,
+    newValue:
+        fuelCharge,
+  );
+
+  addChange(
+    field: 'Late Return',
+    oldValue:
+        booking.lateReturnCharge,
+    newValue:
+        lateReturnCharge,
+  );
+
+  addChange(
+    field: 'Damage Charge',
+    oldValue:
+        booking.damageCharge,
+    newValue:
+        damageCharge,
+  );
+
+  addChange(
+    field: 'Other Charges',
+    oldValue:
+        booking.otherCharges,
+    newValue:
+        otherCharges,
+  );
+
+  addChange(
+    field: 'Discount',
+    oldValue:
+        booking.discount,
+    newValue:
+        discount,
+  );
+
+  addChange(
+    field: 'Tax',
+    oldValue:
+        booking.tax,
+    newValue:
+        tax,
+  );
+
+  addChange(
+    field: 'Total Amount',
+    oldValue:
+        booking.totalAmount,
+    newValue:
+        totalAmount,
+  );
+
+  addChange(
+    field: 'Paid Amount',
+    oldValue:
+        booking.paidAmount,
+    newValue:
+        paidAmount,
+  );
+
+  addChange(
+    field: 'Agreement Number',
+    oldValue:
+        booking.agreementNumber,
+    newValue:
+        agreementNumber,
+  );
+
+  addChange(
+    field: 'License Number',
+    oldValue:
+        booking.licenseNumber,
+    newValue:
+        licenseNumber,
+  );
+
+  addChange(
+    field: 'ID Proof Number',
+    oldValue:
+        booking.idProofNumber,
+    newValue:
+        idProofNumber,
+  );
+
+  addChange(
+    field: 'Customer Notes',
+    oldValue:
+        booking.customerNotes,
+    newValue:
+        customerNotes,
+  );
+
+  addChange(
+    field: 'Internal Notes',
+    oldValue:
+        booking.internalNotes,
+    newValue:
+        internalNotes,
+  );
+
+  // ----------------------------------------------------------
+  // NOTHING CHANGED
+  // ----------------------------------------------------------
+
+  if (changes.isEmpty) {
+    return booking;
+  }
+
+  // ----------------------------------------------------------
+  // UPDATE BOOKING
+  // ----------------------------------------------------------
+
+  final updates =
+      <String, dynamic>{
+    'customerName':
+        customerName,
+
+    'customerPhone':
+        customerPhone,
+
+    'pickupDateTime':
+        Timestamp.fromDate(
+      pickupDateTime,
+    ),
+
+    'returnDateTime':
+        Timestamp.fromDate(
+      returnDateTime,
+    ),
+
+    'pickupLocation':
+        pickupLocation,
+
+    'returnLocation':
+        returnLocation,
+
+    'dailyRate':
+        dailyRate,
+
+    'hourlyRate':
+        hourlyRate,
+
+    'rentalDays':
+        rentalDays,
+
+    'rentalHours':
+        rentalHours,
+
+    'baseRentalAmount':
+        baseRentalAmount,
+
+    'securityDeposit':
+        securityDeposit,
+
+    'extraKmCharge':
+        extraKmCharge,
+
+    'fuelCharge':
+        fuelCharge,
+
+    'lateReturnCharge':
+        lateReturnCharge,
+
+    'damageCharge':
+        damageCharge,
+
+    'otherCharges':
+        otherCharges,
+
+    'discount':
+        discount,
+
+    'tax':
+        tax,
+
+    'totalAmount':
+        totalAmount,
+
+    'paidAmount':
+        paidAmount,
+
+    'pendingAmount':
+        pendingAmount,
+
+    'paymentStatus':
+        BookingModel.paymentStatusToString(
+      paymentStatus,
+    ),
+
+    'agreementNumber':
+        agreementNumber,
+
+    'termsAccepted':
+        termsAccepted,
+
+    'licenseNumber':
+        licenseNumber,
+
+    'licenseExpiryDate':
+        licenseExpiryDate == null
+            ? null
+            : Timestamp.fromDate(
+                licenseExpiryDate!,
+              ),
+
+    'licenseImageUrl':
+        licenseImageUrl,
+
+    'idProofType':
+        idProofType,
+
+    'idProofNumber':
+        idProofNumber,
+
+    'idProofImageUrl':
+        idProofImageUrl,
+
+    'customerNotes':
+        customerNotes,
+
+    'internalNotes':
+        internalNotes,
+
+    'updatedAt':
+        Timestamp.fromDate(
+      now,
+    ),
+
+    'lastEditedBy':
+        user.uid,
+
+    'lastEditedByName':
+        editorName,
+
+    'lastEditedAt':
+        Timestamp.fromDate(
+      now,
+    ),
+  };
+
+  // ----------------------------------------------------------
+  // SAVE BOOKING
+  // ----------------------------------------------------------
+
+  await bookingRef.update(
+    updates,
+  );
+
+  // ----------------------------------------------------------
+  // SAVE EDIT LOG
+  //
+  // bookings/{bookingId}/editLogs/{logId}
+  // ----------------------------------------------------------
+
+  await bookingRef
+      .collection('editLogs')
+      .add({
+    'editedBy':
+        user.uid,
+
+    'editedByName':
+        editorName,
+
+    'editedAt':
+        Timestamp.fromDate(
+      now,
+    ),
+
+    'changes':
+        changes,
+
+    'createdAt':
+        Timestamp.fromDate(
+      now,
+    ),
+  });
+
+  // ----------------------------------------------------------
+  // RETURN UPDATED BOOKING
+  // ----------------------------------------------------------
+
+  final updatedSnapshot =
+      await bookingRef.get();
+
+  return BookingModel.fromFirestore(
+    updatedSnapshot,
+  );
+}
   Future<BookingModel> startRental(
     String bookingId,
   ) async {
