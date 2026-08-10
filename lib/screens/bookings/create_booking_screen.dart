@@ -72,6 +72,8 @@ class _CreateBookingScreenState
 
   final _taxController =
       TextEditingController(text: '0');
+      final _totalAmountController =
+    TextEditingController();
 
   final _paidAmountController =
       TextEditingController(text: '0');
@@ -98,7 +100,9 @@ class _CreateBookingScreenState
   DateTime? _licenseExpiryDate;
 
   String? _idProofType;
+double _calculatedTotalAmount = 0.0;
 
+double? _manualTotalAmount;
   bool _termsAccepted = false;
 
   bool _isSaving = false;
@@ -112,19 +116,36 @@ final CustomerService _customerService =
   // ============================================================
   // INIT
   // ============================================================
-
-  @override
-  void initState() {
-    super.initState();
-
-    _securityDepositController.text =
-        widget.vehicle.securityDeposit
-            .toStringAsFixed(0);
-
-    _agreementNumberController.text =
-        _generateAgreementNumber();
+void _syncTotalAmountField() {
+  if (_manualTotalAmount != null) {
+    _totalAmountController.text =
+        _manualTotalAmount!.toStringAsFixed(2);
+    return;
   }
 
+  _totalAmountController.text =
+      _totalAmount.toStringAsFixed(2);
+}
+void _clearManualTotalAmount() {
+  setState(() {
+    _manualTotalAmount = null;
+  });
+
+  _syncTotalAmountField();
+}
+ @override
+void initState() {
+  super.initState();
+
+  _securityDepositController.text =
+      widget.vehicle.securityDeposit
+          .toStringAsFixed(0);
+
+  _agreementNumberController.text =
+      _generateAgreementNumber();
+
+  _syncTotalAmountField();
+}
   // ============================================================
   // DISPOSE
   // ============================================================
@@ -134,7 +155,7 @@ final CustomerService _customerService =
     _customerIdController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
-
+_totalAmountController.dispose();
     _pickupLocationController.dispose();
     _returnLocationController.dispose();
 
@@ -1203,171 +1224,383 @@ height: 1.4,
   // PRICING
   // ============================================================
 
-  Widget _buildPricingSection() {
-    return _sectionCard(
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+ Widget _buildPricingSection() {
+  return _sectionCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          icon: Icons.payments_outlined,
+          title: 'Pricing',
+          subtitle: 'Rental charges and payment',
+        ),
 
-        children: [
-          _sectionTitle(
-            icon:
-                Icons.payments_outlined,
-            title: 'Pricing',
-            subtitle:
-                'Rental charges and payment',
+        const SizedBox(
+          height: AppSpacing.md,
+        ),
+
+        // ----------------------------------------------------
+        // RATES
+        // ----------------------------------------------------
+
+        Row(
+          children: [
+            Expanded(
+              child: _readOnlyMoneyField(
+                label: 'Daily Rate',
+                value: _money(
+                  widget.vehicle.dailyRate,
+                ),
+              ),
+            ),
+            const SizedBox(
+              width: AppSpacing.sm,
+            ),
+            Expanded(
+              child: _readOnlyMoneyField(
+                label: 'Hourly Rate',
+                value: _money(
+                  _hourlyRate,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(
+          height: AppSpacing.sm,
+        ),
+
+        // ----------------------------------------------------
+        // RENTAL + SECURITY DEPOSIT
+        // ----------------------------------------------------
+
+        Row(
+          children: [
+            Expanded(
+              child: _readOnlyMoneyField(
+                label: 'Rental Amount',
+                value: _money(
+                  _baseRentalAmount,
+                ),
+              ),
+            ),
+            const SizedBox(
+              width: AppSpacing.sm,
+            ),
+            Expanded(
+              child: _textField(
+                controller:
+                    _securityDepositController,
+                label: 'Security Deposit',
+                hint: '0',
+                icon:
+                    Icons.lock_outline_rounded,
+                keyboardType:
+                    const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(
+          height: AppSpacing.sm,
+        ),
+
+        // ----------------------------------------------------
+        // FINAL TOTAL
+        // ----------------------------------------------------
+
+        _textField(
+          controller:
+              _totalAmountController,
+          label: 'Total Amount',
+          hint: _money(
+            _totalAmount,
           ),
-
-          const SizedBox(
-            height: AppSpacing.lg,
+          icon:
+              Icons.account_balance_wallet_outlined,
+          keyboardType:
+              const TextInputType.numberWithOptions(
+            decimal: true,
           ),
+          requiredField: true,
+          onChanged: (value) {
+            final text =
+                value.trim();
 
-          Row(
-            children: [
-              Expanded(
-                child:
-                    _readOnlyMoneyField(
-                  label: 'Daily Rate',
-                  value:
-                      _money(
-                    widget.vehicle
-                        .dailyRate,
+            final amount =
+                double.tryParse(
+              text,
+            );
+
+            setState(() {
+              if (text.isEmpty) {
+                _manualTotalAmount =
+                    null;
+              } else if (amount != null &&
+                  amount >= 0) {
+                _manualTotalAmount =
+                    amount;
+              }
+            });
+          },
+        ),
+
+        const SizedBox(
+          height: AppSpacing.xs,
+        ),
+
+        // ----------------------------------------------------
+        // CALCULATED TOTAL / MANUAL OVERRIDE
+        // ----------------------------------------------------
+
+        Row(
+          children: [
+            Icon(
+              _manualTotalAmount != null
+                  ? Icons.edit_rounded
+                  : Icons.auto_awesome_rounded,
+              size: 14,
+              color: AppColors.textSecondary,
+            ),
+
+            const SizedBox(
+              width: 6,
+            ),
+
+            Expanded(
+              child: Text(
+                _manualTotalAmount != null
+                    ? 'Manual total • Calculated: ${_money(_calculatedTotalAmount)}'
+                    : 'Calculated total: ${_money(_calculatedTotalAmount)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              ),
+            ),
+
+            if (_manualTotalAmount != null)
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _manualTotalAmount =
+                        null;
+                  });
+
+                  _syncTotalAmountField();
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  minimumSize:
+                      const Size(
+                    0,
+                    30,
+                  ),
+                  tapTargetSize:
+                      MaterialTapTargetSize
+                          .shrinkWrap,
+                ),
+                child: const Text(
+                  'Use calculated',
+                  style: TextStyle(
+                    fontSize: 12,
                   ),
                 ),
               ),
+          ],
+        ),
 
-              const SizedBox(
-                width: AppSpacing.md,
-              ),
+        const SizedBox(
+          height: AppSpacing.sm,
+        ),
 
-              Expanded(
-                child:
-                    _readOnlyMoneyField(
-                  label: 'Hourly Rate',
-                  value:
-                      _money(
-                    _hourlyRate,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        // ----------------------------------------------------
+        // ADDITIONAL CHARGES
+        // ----------------------------------------------------
 
-          const SizedBox(
-            height: AppSpacing.md,
-          ),
-
-          Row(
-            children: [
-              Expanded(
-                child:
-                    _readOnlyMoneyField(
-                  label: 'Rental Amount',
-                  value:
-                      _money(
-                    _baseRentalAmount,
-                  ),
-                ),
-              ),
-
-              const SizedBox(
-                width: AppSpacing.md,
-              ),
-
-              Expanded(
-                child: _textField(
-                  controller:
-                      _securityDepositController,
-                  label:
-                      'Security Deposit',
-                  hint: '0',
-                  icon:
-                      Icons.lock_outline_rounded,
-                  keyboardType:
-                      const TextInputType
-                          .numberWithOptions(
-                    decimal: true,
-                  ),
-                  requiredField: true,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(
-            height: AppSpacing.lg,
-          ),
-
-          const Divider(),
-
-          const SizedBox(
-            height: AppSpacing.lg,
-          ),
-
-          _chargeField(
-            controller:
-                _extraKmChargeController,
-            label: 'Extra KM Charge',
-          ),
-
-          _chargeField(
-            controller:
-                _fuelChargeController,
-            label: 'Fuel Charge',
-          ),
-
-          _chargeField(
-            controller:
-                _lateReturnChargeController,
-            label: 'Late Return Charge',
-          ),
-
-          _chargeField(
-            controller:
-                _damageChargeController,
-            label: 'Damage Charge',
-          ),
-
-          _chargeField(
-            controller:
-                _otherChargesController,
-            label: 'Other Charges',
-          ),
-
-          _chargeField(
-            controller:
-                _discountController,
-            label: 'Discount',
-          ),
-
-          _chargeField(
-            controller:
-                _taxController,
-            label: 'Tax',
-          ),
-
-          const SizedBox(
-            height: AppSpacing.md,
-          ),
-
-          _textField(
-            controller:
-                _paidAmountController,
-            label: 'Amount Paid',
-            hint: '0',
-            icon:
-                Icons.account_balance_wallet_outlined,
-            keyboardType:
-                const TextInputType
-                    .numberWithOptions(
-              decimal: true,
+        Container(
+          decoration: BoxDecoration(
+            color:
+                AppColors.background,
+            borderRadius:
+                BorderRadius.circular(
+              AppRadius.md,
+            ),
+            border: Border.all(
+              color:
+                  AppColors.border,
             ),
           ),
-        ],
-      ),
-    );
-  }
+          child: Theme(
+            data:
+                Theme.of(context).copyWith(
+              dividerColor:
+                  Colors.transparent,
+            ),
+            child: ExpansionTile(
+              tilePadding:
+                  const EdgeInsets.symmetric(
+                horizontal:
+                    AppSpacing.md,
+              ),
+              childrenPadding:
+                  const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                0,
+                AppSpacing.md,
+                AppSpacing.md,
+              ),
+              leading: const Icon(
+                Icons.tune_rounded,
+              ),
+              title: const Text(
+                'Additional Charges',
+              ),
+              subtitle: Text(
+                _additionalCharges > 0
+                    ? _money(
+                        _additionalCharges,
+                      )
+                    : 'Optional',
+              ),
+              children: [
+                _chargeField(
+                  controller:
+                      _extraKmChargeController,
+                  label: 'Extra KM',
+                ),
 
+                _chargeField(
+                  controller:
+                      _fuelChargeController,
+                  label: 'Fuel',
+                ),
+
+                _chargeField(
+                  controller:
+                      _lateReturnChargeController,
+                  label: 'Late Return',
+                ),
+
+                _chargeField(
+                  controller:
+                      _damageChargeController,
+                  label: 'Damage',
+                ),
+
+                _chargeField(
+                  controller:
+                      _otherChargesController,
+                  label: 'Other',
+                ),
+
+                _chargeField(
+                  controller:
+                      _discountController,
+                  label: 'Discount',
+                ),
+
+                _chargeField(
+                  controller:
+                      _taxController,
+                  label: 'Tax',
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(
+          height: AppSpacing.sm,
+        ),
+
+        // ----------------------------------------------------
+        // PAYMENT
+        // ----------------------------------------------------
+
+        _textField(
+          controller:
+              _paidAmountController,
+          label: 'Amount Paid',
+          hint: '0',
+          icon:
+              Icons.payments_outlined,
+          keyboardType:
+              const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
+        ),
+
+        const SizedBox(
+          height: AppSpacing.sm,
+        ),
+
+        // ----------------------------------------------------
+        // PENDING AMOUNT
+        // ----------------------------------------------------
+
+        Container(
+          width: double.infinity,
+          padding:
+              const EdgeInsets.symmetric(
+            horizontal:
+                AppSpacing.md,
+            vertical:
+                AppSpacing.sm,
+          ),
+          decoration:
+              BoxDecoration(
+            color:
+                AppColors.background,
+            borderRadius:
+                BorderRadius.circular(
+              AppRadius.md,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment:
+                MainAxisAlignment
+                    .spaceBetween,
+            children: [
+              const Text(
+                'Pending Amount',
+              ),
+              Text(
+                _money(
+                  (
+                    _totalAmount -
+                    _doubleValue(
+                      _paidAmountController,
+                    )
+                  )
+                      .clamp(
+                        0.0,
+                        double.infinity,
+                      )
+                      .toDouble(),
+                ),
+                style:
+                    const TextStyle(
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
   // ============================================================
   // DOCUMENTS
   // ============================================================
@@ -2467,16 +2700,23 @@ if (customer == null) {
   }
 
   double get _totalAmount {
-    final total =
-        _baseRentalAmount +
-            _additionalCharges +
-            _tax -
-            _discount;
+  final calculatedTotal =
+      _baseRentalAmount +
+      _additionalCharges +
+      _tax -
+      _discount;
 
-    return total < 0
-        ? 0
-        : total;
-  }
+  final safeTotal =
+      calculatedTotal < 0
+          ? 0.0
+          : calculatedTotal;
+
+  _calculatedTotalAmount =
+      safeTotal;
+
+  return _manualTotalAmount ??
+      safeTotal;
+}
 
   // ============================================================
   // UI HELPERS
@@ -2669,45 +2909,43 @@ if (customer == null) {
       ),
     );
   }
+Widget _textField({
+  required TextEditingController controller,
+  required String label,
+  required String hint,
+  required IconData icon,
+  bool requiredField = false,
+  TextInputType? keyboardType,
+  int maxLines = 1,
+  ValueChanged<String>? onChanged,
+}) {
+  return TextFormField(
+    controller: controller,
 
-  Widget _textField({
-    required TextEditingController
-        controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    bool requiredField = false,
-    TextInputType? keyboardType,
-    int maxLines = 1,
-  }) {
-    return TextFormField(
-      controller: controller,
+    keyboardType: keyboardType,
 
-      keyboardType:
-          keyboardType,
+    maxLines: maxLines,
 
-      maxLines:
-          maxLines,
+    onChanged: onChanged,
 
-      decoration:
-          _inputDecoration(
-        label: label,
-        icon: icon,
-        hint: hint,
-      ),
+    decoration: _inputDecoration(
+      label: label,
+      icon: icon,
+      hint: hint,
+    ),
 
-      validator: requiredField
-          ? (value) {
-              if (value == null ||
-                  value.trim().isEmpty) {
-                return '$label is required.';
-              }
-
-              return null;
+    validator: requiredField
+        ? (value) {
+            if (value == null ||
+                value.trim().isEmpty) {
+              return '$label is required.';
             }
-          : null,
-    );
-  }
+
+            return null;
+          }
+        : null,
+  );
+}
 
   Widget _readOnlyMoneyField({
     required String label,
