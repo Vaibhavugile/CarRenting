@@ -5,6 +5,8 @@ import '../../models/booking_model.dart';
 import '../../models/vehicle_model.dart';
 import '../../services/booking_service.dart';
 import 'create_booking_screen.dart';
+import '../../models/customer_model.dart';
+import '../../services/customer_service.dart';
 class CreateBookingScreen extends StatefulWidget {
   final VehicleModel vehicle;
 
@@ -100,7 +102,13 @@ class _CreateBookingScreenState
   bool _termsAccepted = false;
 
   bool _isSaving = false;
+CustomerModel? _selectedCustomer;
 
+bool _isSearchingCustomer = false;
+
+bool _showNewCustomerForm = false;
+final CustomerService _customerService =
+    CustomerService.instance;
   // ============================================================
   // INIT
   // ============================================================
@@ -153,6 +161,104 @@ class _CreateBookingScreenState
 
     super.dispose();
   }
+Future<void> _searchCustomerByPhone() async {
+FocusScope.of(context).unfocus();
+
+final phone =
+_customerPhoneController.text.trim();
+
+if (phone.isEmpty) {
+_showError(
+'Enter the customer phone number.',
+);
+return;
+}
+
+if (phone.length < 10) {
+_showError(
+'Enter a valid 10-digit phone number.',
+);
+return;
+}
+
+setState(() {
+_isSearchingCustomer = true;
+});
+
+try {
+final customer =
+await _customerService.findByPhone(
+phone,
+);
+
+if (!mounted) return;
+
+if (customer != null) {
+  setState(() {
+    _selectedCustomer = customer;
+
+    _customerIdController.text =
+        customer.id;
+
+    _customerNameController.text =
+        customer.name;
+
+    _customerPhoneController.text =
+        customer.phone;
+
+    _licenseNumberController.text =
+        customer.licenseNumber ?? '';
+
+    _idProofNumberController.text =
+        customer.idProofNumber ?? '';
+
+    _idProofType =
+        customer.idProofType;
+
+    _licenseExpiryDate =
+        customer.licenseExpiryDate;
+
+    _showNewCustomerForm = false;
+  });
+
+  _showSuccess(
+    'Customer found and details loaded.',
+  );
+} else {
+  setState(() {
+    _selectedCustomer = null;
+
+    _customerIdController.clear();
+    _customerNameController.clear();
+
+    _showNewCustomerForm = true;
+  });
+
+  _showError(
+    'No customer found. Enter the customer details to create a new customer.',
+  );
+}
+
+
+} catch (error) {
+if (!mounted) return;
+
+
+_showError(
+  _cleanErrorMessage(
+    error.toString(),
+  ),
+);
+
+
+} finally {
+if (mounted) {
+setState(() {
+_isSearchingCustomer = false;
+});
+}
+}
+}
 
   // ============================================================
   // BUILD
@@ -557,71 +663,480 @@ class _CreateBookingScreenState
   // CUSTOMER
   // ============================================================
 
-  Widget _buildCustomerSection() {
-    return _sectionCard(
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+ Widget _buildCustomerSection() {
+return _sectionCard(
+child: Column(
+crossAxisAlignment:
+CrossAxisAlignment.start,
+children: [
+_sectionTitle(
+icon:
+Icons.person_outline_rounded,
+title: 'Customer',
+subtitle:
+'Search by phone or create a new customer',
+),
 
-        children: [
-          _sectionTitle(
-            icon:
-                Icons.person_outline_rounded,
-            title: 'Customer',
-            subtitle:
-                'Renter information',
-          ),
 
-          const SizedBox(
-            height: AppSpacing.lg,
-          ),
+    const SizedBox(
+      height: AppSpacing.lg,
+    ),
 
-          _textField(
-            controller:
-                _customerIdController,
-            label: 'Customer ID',
-            hint:
-                'Enter customer ID',
-            icon:
-                Icons.badge_outlined,
-            requiredField: true,
-          ),
-
-          const SizedBox(
-            height: AppSpacing.md,
-          ),
-
-          _textField(
-            controller:
-                _customerNameController,
-            label: 'Customer Name',
-            hint:
-                'Enter full customer name',
-            icon:
-                Icons.person_outline_rounded,
-            requiredField: true,
-          ),
-
-          const SizedBox(
-            height: AppSpacing.md,
-          ),
-
-          _textField(
+    Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _textField(
             controller:
                 _customerPhoneController,
-            label: 'Phone Number',
+            label:
+                'Phone Number',
             hint:
-                'Enter customer phone',
+                'Enter 10-digit phone number',
             icon:
                 Icons.phone_outlined,
             keyboardType:
                 TextInputType.phone,
             requiredField: true,
           ),
-        ],
+        ),
+
+        const SizedBox(
+          width: AppSpacing.sm,
+        ),
+
+        SizedBox(
+  width: 56,
+  height: 56,
+  child: ElevatedButton(
+    onPressed:
+        _isSearchingCustomer
+            ? null
+            : _searchCustomerByPhone,
+    style: ElevatedButton.styleFrom(
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          AppRadius.md,
+        ),
       ),
-    );
-  }
+    ),
+    child:
+        _isSearchingCustomer
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(
+                Icons.search_rounded,
+              ),
+  ),
+),
+      ],
+    ),
+
+    const SizedBox(
+      height: AppSpacing.md,
+    ),
+
+    if (_selectedCustomer != null)
+      _buildSelectedCustomerCard(),
+
+    if (_selectedCustomer == null &&
+        _showNewCustomerForm)
+      _buildNewCustomerForm(),
+
+    if (_selectedCustomer == null &&
+        !_showNewCustomerForm)
+      _buildCustomerHint(),
+  ],
+),
+
+
+);
+}
+
+Widget _buildSelectedCustomerCard() {
+final customer =
+_selectedCustomer!;
+
+return Container(
+width: double.infinity,
+padding:
+const EdgeInsets.all(
+AppSpacing.md,
+),
+decoration:
+BoxDecoration(
+color:
+AppColors.primary.withValues(
+alpha: 0.05,
+),
+borderRadius:
+BorderRadius.circular(
+AppRadius.lg,
+),
+border: Border.all(
+color:
+AppColors.primary.withValues(
+alpha: 0.20,
+),
+),
+),
+child: Column(
+crossAxisAlignment:
+CrossAxisAlignment.start,
+children: [
+Row(
+children: [
+Container(
+width: 42,
+height: 42,
+decoration:
+BoxDecoration(
+color:
+AppColors.primary.withValues(
+alpha: 0.10,
+),
+shape:
+BoxShape.circle,
+),
+child: const Icon(
+Icons.person_rounded,
+color:
+AppColors.primary,
+),
+),
+
+
+        const SizedBox(
+          width: AppSpacing.md,
+        ),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                customer.name,
+                style:
+                    const TextStyle(
+                  fontSize: 14,
+                  fontWeight:
+                      FontWeight.w800,
+                ),
+              ),
+              const SizedBox(
+                height: 3,
+              ),
+              Text(
+                customer.phone,
+                style:
+                    const TextStyle(
+                  fontSize: 12,
+                  color:
+                      AppColors.textSecondary,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        _statusChip(
+          'Selected',
+          AppColors.success,
+        ),
+      ],
+    ),
+
+    const SizedBox(
+      height: AppSpacing.md,
+    ),
+
+    const Divider(),
+
+    const SizedBox(
+      height: AppSpacing.sm,
+    ),
+
+    Row(
+      children: [
+        const Icon(
+          Icons.badge_outlined,
+          size: 16,
+          color:
+              AppColors.textSecondary,
+        ),
+        const SizedBox(
+          width: 6,
+        ),
+        Expanded(
+          child: Text(
+            'Customer ID: ${customer.id}',
+            style:
+                const TextStyle(
+              fontSize: 11,
+              color:
+                  AppColors.textSecondary,
+              fontWeight:
+                  FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+
+    const SizedBox(
+      height: AppSpacing.sm,
+    ),
+
+    Align(
+      alignment:
+          Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: () {
+          setState(() {
+            _selectedCustomer =
+                null;
+            _showNewCustomerForm =
+                false;
+            _customerIdController
+                .clear();
+            _customerNameController
+                .clear();
+          });
+        },
+        icon: const Icon(
+          Icons.swap_horiz_rounded,
+          size: 18,
+        ),
+        label:
+            const Text('Change'),
+      ),
+    ),
+  ],
+),
+
+
+);
+}
+
+Widget _buildNewCustomerForm() {
+return Column(
+crossAxisAlignment:
+CrossAxisAlignment.start,
+children: [
+Container(
+width: double.infinity,
+padding:
+const EdgeInsets.all(
+AppSpacing.md,
+),
+decoration:
+BoxDecoration(
+color:
+AppColors.background,
+borderRadius:
+BorderRadius.circular(
+AppRadius.md,
+),
+border: Border.all(
+color:
+AppColors.border,
+),
+),
+child: Row(
+children: [
+const Icon(
+Icons.person_add_alt_1_rounded,
+color:
+AppColors.primary,
+),
+const SizedBox(
+width: AppSpacing.sm,
+),
+const Expanded(
+child: Text(
+'New customer',
+style:
+TextStyle(
+fontSize: 13,
+fontWeight:
+FontWeight.w800,
+),
+),
+),
+TextButton(
+onPressed: () {
+setState(() {
+_showNewCustomerForm =
+false;
+});
+},
+child:
+const Text('Cancel'),
+),
+],
+),
+),
+
+
+  const SizedBox(
+    height: AppSpacing.md,
+  ),
+
+  _textField(
+    controller:
+        _customerNameController,
+    label:
+        'Customer Name',
+    hint:
+        'Enter full customer name',
+    icon:
+        Icons.person_outline_rounded,
+    requiredField: true,
+  ),
+
+  const SizedBox(
+    height: AppSpacing.md,
+  ),
+
+  _textField(
+    controller:
+        _licenseNumberController,
+    label:
+        'Driving Licence Number',
+    hint:
+        'Optional',
+    icon:
+        Icons.credit_card_outlined,
+  ),
+
+  const SizedBox(
+    height: AppSpacing.md,
+  ),
+
+  DropdownButtonFormField<String>(
+    initialValue:
+        _idProofType,
+    decoration:
+        _inputDecoration(
+      label:
+          'ID Proof Type',
+      icon:
+          Icons.contact_page_outlined,
+    ),
+    items: const [
+      DropdownMenuItem(
+        value: 'Aadhaar',
+        child:
+            Text('Aadhaar'),
+      ),
+      DropdownMenuItem(
+        value: 'PAN',
+        child:
+            Text('PAN'),
+      ),
+      DropdownMenuItem(
+        value: 'Passport',
+        child:
+            Text('Passport'),
+      ),
+      DropdownMenuItem(
+        value: 'Voter ID',
+        child:
+            Text('Voter ID'),
+      ),
+      DropdownMenuItem(
+        value: 'Other',
+        child:
+            Text('Other'),
+      ),
+    ],
+    onChanged: (value) {
+      setState(() {
+        _idProofType =
+            value;
+      });
+    },
+  ),
+
+  const SizedBox(
+    height: AppSpacing.md,
+  ),
+
+  _textField(
+    controller:
+        _idProofNumberController,
+    label:
+        'ID Proof Number',
+    hint:
+        'Optional',
+    icon:
+        Icons.numbers_outlined,
+  ),
+],
+
+
+);
+}
+
+Widget _buildCustomerHint() {
+return Container(
+width: double.infinity,
+padding:
+const EdgeInsets.all(
+AppSpacing.md,
+),
+decoration:
+BoxDecoration(
+color:
+AppColors.background,
+borderRadius:
+BorderRadius.circular(
+AppRadius.md,
+),
+border: Border.all(
+color:
+AppColors.border,
+),
+),
+child: Row(
+children: [
+const Icon(
+Icons.search_rounded,
+size: 19,
+color:
+AppColors.textSecondary,
+),
+const SizedBox(
+width: AppSpacing.sm,
+),
+const Expanded(
+child: Text(
+'Enter a phone number and search for an existing customer.',
+style:
+TextStyle(
+fontSize: 11,
+color:
+AppColors.textSecondary,
+height: 1.4,
+),
+),
+),
+],
+),
+);
+}
+
 
   // ============================================================
   // PICKUP & RETURN
@@ -1293,334 +1808,525 @@ class _CreateBookingScreenState
   // ============================================================
 
   Widget _buildBottomBar() {
-    return SafeArea(
-      child: Container(
-        padding:
-            const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          AppSpacing.md,
-          AppSpacing.xl,
-          AppSpacing.md,
-        ),
-
-        decoration:
-            BoxDecoration(
-          color: Colors.white,
-
-          border: Border(
-            top: BorderSide(
-              color:
-                  AppColors.border,
-            ),
+  return SafeArea(
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.md,
+        AppSpacing.xl,
+        AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.border,
           ),
-
-          boxShadow:
-              AppShadows.card,
         ),
-
-        child: SizedBox(
-          height: 52,
-
-          child: ElevatedButton.icon(
-            onPressed:
-                _isSaving
-                    ? null
-                    : _submitBooking,
-
-            icon:
-                _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child:
-                            CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color:
-                              Colors.white,
-                        ),
-                      )
-                    : const Icon(
-                        Icons
-                            .check_circle_outline_rounded,
-                      ),
-
-            label:
-                Text(
+        boxShadow: AppShadows.card,
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton.icon(
+          onPressed:
               _isSaving
-                  ? 'Creating Booking...'
-                  : 'Confirm & Create Booking',
-            ),
+                  ? null
+                  : _submitBooking,
+          icon:
+              _isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.check_circle_outline_rounded,
+                    ),
+          label: Text(
+            _isSaving
+                ? 'Creating Booking...'
+                : 'Confirm & Create Booking',
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ============================================================
   // SUBMIT BOOKING
   // ============================================================
+Future<CustomerModel?> _createNewCustomer() async {
+  final name = _customerNameController.text.trim();
+  final phone = _customerPhoneController.text.trim();
 
-  Future<void> _submitBooking() async {
-    if (_isSaving) {
-      return;
-    }
+  if (name.isEmpty) {
+    _showError('Enter the customer name.');
+    return null;
+  }
 
-    FocusScope.of(context).unfocus();
+  if (phone.length < 10) {
+    _showError('Enter a valid 10-digit phone number.');
+    return null;
+  }
 
-    if (!_formKey.currentState!
-        .validate()) {
-      return;
-    }
+  try {
+    final customer =
+        await _customerService.createCustomer(
+      name: name,
+      phone: phone,
 
-    if (!_termsAccepted) {
-      _showError(
-        'Please confirm that the rental terms are accepted.',
-      );
-      return;
-    }
+      licenseNumber:
+          _optionalText(
+        _licenseNumberController,
+      ),
 
-    final paidAmount =
-        _doubleValue(
-      _paidAmountController,
+      licenseExpiryDate:
+          _licenseExpiryDate,
+
+      licenseImageUrl:
+          null,
+
+      idProofType:
+          _idProofType,
+
+      idProofNumber:
+          _optionalText(
+        _idProofNumberController,
+      ),
+
+      idProofImageUrl:
+          null,
     );
 
-    final total =
-        _totalAmount;
-
-    if (paidAmount < 0) {
-      _showError(
-        'Paid amount cannot be negative.',
-      );
-      return;
-    }
-
-    if (paidAmount > total) {
-      _showError(
-        'Paid amount cannot be greater than the total amount.',
-      );
-      return;
-    }
-
-    final securityDeposit =
-        _doubleValue(
-      _securityDepositController,
-    );
-
-    if (securityDeposit < 0) {
-      _showError(
-        'Security deposit cannot be negative.',
-      );
-      return;
+    if (!mounted) {
+      return customer;
     }
 
     setState(() {
-      _isSaving = true;
+      _selectedCustomer = customer;
+
+      _customerIdController.text =
+          customer.id;
+
+      _customerNameController.text =
+          customer.name;
+
+      _customerPhoneController.text =
+          customer.phone;
+
+      _showNewCustomerForm = false;
     });
 
-    try {
-      final duration =
-          widget.returnDateTime
-              .difference(
-                widget.pickupDateTime,
-              );
+    return customer;
+  } catch (error) {
+    if (!mounted) {
+      return null;
+    }
 
-      final rentalDays =
-          duration.inDays;
+    _showError(
+      _cleanErrorMessage(
+        error.toString(),
+      ),
+    );
 
-      final rentalHours =
-          duration.inHours % 24;
+    return null;
+  }
+}
+  Future<void> _submitBooking() async {
+  if (_isSaving) {
+    return;
+  }
 
-      final booking =
-          await BookingService
-              .instance
-              .createBooking(
-        customerId:
-            _customerIdController.text
-                .trim(),
+  FocusScope.of(context).unfocus();
 
-        customerName:
-            _customerNameController
-                .text
-                .trim(),
+  // ----------------------------------------------------------
+  // FORM VALIDATION
+  // ----------------------------------------------------------
 
-        customerPhone:
-            _customerPhoneController
-                .text
-                .trim(),
+  if (!_formKey.currentState!.validate()) {
+    return;
+  }
 
-        vehicleId:
-            widget.vehicle.id,
+  if (!_termsAccepted) {
+    _showError(
+      'Please confirm that the rental terms are accepted.',
+    );
+    return;
+  }
 
-        pickupDateTime:
-            widget.pickupDateTime,
+  // ----------------------------------------------------------
+  // CUSTOMER VALIDATION
+  // ----------------------------------------------------------
+CustomerModel? customer =
+    _selectedCustomer;
 
-        returnDateTime:
-            widget.returnDateTime,
+if (customer == null) {
+  // No existing customer selected.
+  // If the new customer form is visible,
+  // create the customer now.
+  if (_showNewCustomerForm) {
+    customer =
+        await _createNewCustomer();
 
-        pickupLocation:
-            _pickupLocationController
-                .text
-                .trim(),
+    if (customer == null) {
+      return;
+    }
+  } else {
+    _showError(
+      'Please search for a customer first.',
+    );
+    return;
+  }
+}
+  // ----------------------------------------------------------
+  // PAYMENT
+  // ----------------------------------------------------------
 
-        returnLocation:
-            _returnLocationController
-                .text
-                .trim(),
+  final paidAmount =
+      _doubleValue(
+    _paidAmountController,
+  );
 
-        // BookingService currently requires these pickup-handover
-        // fields. The actual handover screen should update them
-        // when the customer collects the vehicle.
-        // startingKm:
-        //     widget.vehicle.currentKm,
+  final total =
+      _totalAmount;
 
-        // fuelAtPickup:
-        //     FuelLevel.full,
+  if (paidAmount < 0) {
+    _showError(
+      'Paid amount cannot be negative.',
+    );
+    return;
+  }
 
-        dailyRate:
-            widget.vehicle.dailyRate,
+  if (paidAmount > total) {
+    _showError(
+      'Paid amount cannot be greater than the total amount.',
+    );
+    return;
+  }
 
-        hourlyRate:
-            _hourlyRate,
+  // ----------------------------------------------------------
+  // SECURITY DEPOSIT
+  // ----------------------------------------------------------
 
-        rentalDays:
-            rentalDays,
+  final securityDeposit =
+      _doubleValue(
+    _securityDepositController,
+  );
 
-        rentalHours:
-            rentalHours,
+  if (securityDeposit < 0) {
+    _showError(
+      'Security deposit cannot be negative.',
+    );
+    return;
+  }
 
-        baseRentalAmount:
-            _baseRentalAmount,
+  // ----------------------------------------------------------
+  // RENTAL AMOUNT
+  // ----------------------------------------------------------
 
-        securityDeposit:
-            securityDeposit,
+  final rentalAmount =
+      _baseRentalAmount;
 
-        extraKmCharge:
-            _extraKmCharge,
+  if (rentalAmount < 0) {
+    _showError(
+      'Rental amount cannot be negative.',
+    );
+    return;
+  }
 
-        fuelCharge:
-            _fuelCharge,
+  // ----------------------------------------------------------
+  // START SAVING
+  // ----------------------------------------------------------
 
-        lateReturnCharge:
-            _lateReturnCharge,
+  setState(() {
+    _isSaving = true;
+  });
 
-        damageCharge:
-            _damageCharge,
+  try {
+    // --------------------------------------------------------
+    // RENTAL DURATION
+    // --------------------------------------------------------
 
-        otherCharges:
-            _otherCharges,
+    final duration =
+        widget.returnDateTime.difference(
+      widget.pickupDateTime,
+    );
 
-        discount:
-            _discount,
-
-        tax:
-            _tax,
-
-        totalAmount:
-            total,
-
-        paidAmount:
-            paidAmount,
-
-        agreementNumber:
-            _agreementNumberController
-                .text
-                .trim(),
-
-        termsAccepted:
-            _termsAccepted,
-
-        licenseNumber:
-            _optionalText(
-          _licenseNumberController,
-        ),
-
-        licenseExpiryDate:
-            _licenseExpiryDate,
-
-        // Image URLs will be connected
-        // when Firebase Storage upload
-        // is added.
-        licenseImageUrl:
-            null,
-
-        idProofType:
-            _idProofType,
-
-        idProofNumber:
-            _optionalText(
-          _idProofNumberController,
-        ),
-
-        idProofImageUrl:
-            null,
-
-        customerNotes:
-            _optionalText(
-          _customerNotesController,
-        ),
-
-        internalNotes:
-            _optionalText(
-          _internalNotesController,
-        ),
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      _showSuccess(
-        'Booking ${booking.bookingNumber} created successfully.',
-      );
-
-      await Future.delayed(
-        const Duration(
-          milliseconds: 700,
-        ),
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      Navigator.of(context).pop(
-        booking,
-      );
-    } on BookingConflictException catch (
-        exception) {
-      if (!mounted) {
-        return;
-      }
-
-      final conflict =
-          exception.firstConflict;
-
+    if (duration.inMinutes <= 0) {
       _showError(
-        conflict == null
-            ? 'This vehicle is no longer available for the selected period.'
-            : 'Vehicle is already booked from '
-                '${_formatDateTime(conflict.pickupDateTime)} '
-                'to '
-                '${_formatDateTime(conflict.returnDateTime)}.',
+        'Return time must be after pickup time.',
       );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      return;
+    }
 
-      _showError(
-        _cleanErrorMessage(
-          error.toString(),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+    final rentalDays =
+        duration.inDays;
+
+    final rentalHours =
+        duration.inHours % 24;
+
+    // --------------------------------------------------------
+    // CREATE BOOKING
+    // --------------------------------------------------------
+
+    final booking =
+        await BookingService.instance.createBooking(
+      // ------------------------------------------------------
+      // CUSTOMER
+      // ------------------------------------------------------
+
+      customerId:
+          customer.id,
+
+      customerName:
+          customer.name,
+
+      customerPhone:
+          customer.phone,
+
+      // ------------------------------------------------------
+      // VEHICLE
+      // ------------------------------------------------------
+
+      vehicleId:
+          widget.vehicle.id,
+
+      // ------------------------------------------------------
+      // RENTAL PERIOD
+      // ------------------------------------------------------
+
+      pickupDateTime:
+          widget.pickupDateTime,
+
+      returnDateTime:
+          widget.returnDateTime,
+
+      pickupLocation:
+          _pickupLocationController.text.trim(),
+
+      returnLocation:
+          _returnLocationController.text.trim(),
+
+      // ------------------------------------------------------
+      // PICKUP HANDOVER
+      // ------------------------------------------------------
+      // These are handled later by PickupScreen.
+
+      // startingKm:
+      //     widget.vehicle.currentKm,
+
+      // fuelAtPickup:
+      //     FuelLevel.full,
+
+      // ------------------------------------------------------
+      // VEHICLE DEFAULT RATES
+      // ------------------------------------------------------
+
+      dailyRate:
+          widget.vehicle.dailyRate,
+
+      hourlyRate:
+          _hourlyRate,
+
+      // ------------------------------------------------------
+      // RENTAL DURATION
+      // ------------------------------------------------------
+
+      rentalDays:
+          rentalDays,
+
+      rentalHours:
+          rentalHours,
+
+      // ------------------------------------------------------
+      // FINAL RENTAL AMOUNT
+      // ------------------------------------------------------
+
+      baseRentalAmount:
+          rentalAmount,
+
+      // ------------------------------------------------------
+      // SECURITY DEPOSIT
+      // ------------------------------------------------------
+
+      securityDeposit:
+          securityDeposit,
+
+      // ------------------------------------------------------
+      // ADDITIONAL CHARGES
+      // ------------------------------------------------------
+
+      extraKmCharge:
+          _extraKmCharge,
+
+      fuelCharge:
+          _fuelCharge,
+
+      lateReturnCharge:
+          _lateReturnCharge,
+
+      damageCharge:
+          _damageCharge,
+
+      otherCharges:
+          _otherCharges,
+
+      // ------------------------------------------------------
+      // DISCOUNT / TAX
+      // ------------------------------------------------------
+
+      discount:
+          _discount,
+
+      tax:
+          _tax,
+
+      // ------------------------------------------------------
+      // TOTAL
+      // ------------------------------------------------------
+
+      totalAmount:
+          total,
+
+      // ------------------------------------------------------
+      // PAYMENT
+      // ------------------------------------------------------
+
+      paidAmount:
+          paidAmount,
+
+      // ------------------------------------------------------
+      // AGREEMENT
+      // ------------------------------------------------------
+
+      agreementNumber:
+          _agreementNumberController.text.trim(),
+
+      termsAccepted:
+          _termsAccepted,
+
+      // ------------------------------------------------------
+      // LICENCE
+      // ------------------------------------------------------
+
+      licenseNumber:
+          _optionalText(
+        _licenseNumberController,
+      ),
+
+      licenseExpiryDate:
+          _licenseExpiryDate,
+
+      licenseImageUrl:
+          null,
+
+      // ------------------------------------------------------
+      // ID PROOF
+      // ------------------------------------------------------
+
+      idProofType:
+          _idProofType,
+
+      idProofNumber:
+          _optionalText(
+        _idProofNumberController,
+      ),
+
+      idProofImageUrl:
+          null,
+
+      // ------------------------------------------------------
+      // NOTES
+      // ------------------------------------------------------
+
+      customerNotes:
+          _optionalText(
+        _customerNotesController,
+      ),
+
+      internalNotes:
+          _optionalText(
+        _internalNotesController,
+      ),
+    );
+
+    // --------------------------------------------------------
+    // SUCCESS
+    // --------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    _showSuccess(
+      'Booking ${booking.bookingNumber} created successfully.',
+    );
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 700,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.of(context).pop(
+      booking,
+    );
+  } on BookingConflictException catch (exception) {
+    // --------------------------------------------------------
+    // VEHICLE BOOKING CONFLICT
+    // --------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    final conflict =
+        exception.firstConflict;
+
+    _showError(
+      conflict == null
+          ? 'This vehicle is no longer available for the selected period.'
+          : 'Vehicle is already booked from '
+              '${_formatDateTime(conflict.pickupDateTime)} '
+              'to '
+              '${_formatDateTime(conflict.returnDateTime)}.',
+    );
+  } catch (error) {
+    // --------------------------------------------------------
+    // OTHER ERRORS
+    // --------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    _showError(
+      _cleanErrorMessage(
+        error.toString(),
+      ),
+    );
+  } finally {
+    // --------------------------------------------------------
+    // FINISH SAVING
+    // --------------------------------------------------------
+
+    if (mounted) {
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
+}
 
   // ============================================================
   // DATE PICKER

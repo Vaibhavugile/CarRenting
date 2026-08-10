@@ -1068,28 +1068,26 @@ class BookingService {
     // booking.
     // ----------------------------------------------------------
 
-    await _vehicles
-        .doc(vehicleId)
-        .update({
-      'status':
-          'reserved',
+    // ----------------------------------------------------------
+// UPDATE VEHICLE
+//
+// IMPORTANT:
+// A future booking must NOT make the vehicle globally
+// unavailable.
+//
+// Availability is controlled by the booking's
+// pickupDateTime / returnDateTime.
+//
+// The vehicle only becomes "rented" when the customer
+// actually picks it up.
+// ----------------------------------------------------------
 
-      'currentBookingId':
-          bookingRef.id,
-
-      'nextBookingStartAt':
-          Timestamp.fromDate(
-        pickupDateTime,
-      ),
-
-      'nextBookingEndAt':
-          Timestamp.fromDate(
-        returnDateTime,
-      ),
-
-      'updatedAt':
-          FieldValue.serverTimestamp(),
-    });
+await _vehicles
+    .doc(vehicleId)
+    .update({
+  'updatedAt':
+      FieldValue.serverTimestamp(),
+});
 
     return booking;
   }
