@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/booking_model.dart';
+import 'package:car_rental/models/payment_model.dart';
 import '../models/user_model.dart';
 import '../models/vehicle_model.dart';
 
@@ -69,6 +70,7 @@ class BookingService {
       snapshot,
     );
   }
+
 
   // ============================================================
   // BOOKING STATUSES THAT BLOCK AVAILABILITY
@@ -237,6 +239,26 @@ class BookingService {
       conflicts: conflicts,
     );
   }
+  Future<List<PaymentModel>> getPayments({
+  required String bookingId,
+}) async {
+  final snapshot = await _bookings
+      .doc(bookingId)
+      .collection('payments')
+      .orderBy(
+        'paymentDate',
+        descending: true,
+      )
+      .get();
+
+  return snapshot.docs
+      .map(
+        (doc) => PaymentModel.fromFirestore(
+          doc,
+        ),
+      )
+      .toList();
+}
 
   // ============================================================
   // GET BOOKINGS FOR CALENDAR
@@ -669,7 +691,177 @@ class BookingService {
   // transactionally lock an arbitrary range of booking
   // documents.
   // ============================================================
+// ============================================================
+// ADD PAYMENT
+// ============================================================
 
+Future<PaymentModel> addPayment({
+  required String bookingId,
+  required double amount,
+  required PaymentMode mode,
+  required DateTime paymentDate,
+  String? referenceNumber,
+  String? notes,
+}) async {
+  if (amount <= 0) {
+    throw Exception(
+      'Payment amount must be greater than zero.',
+    );
+  }
+
+  final user = currentUser;
+
+  if (user == null) {
+    throw Exception(
+      'You must be logged in.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // GET BOOKING
+  // ----------------------------------------------------------
+
+  final bookingRef =
+      _bookings.doc(bookingId);
+
+  final bookingSnapshot =
+      await bookingRef.get();
+
+  if (!bookingSnapshot.exists) {
+    throw Exception(
+      'Booking not found.',
+    );
+  }
+
+  final booking =
+      BookingModel.fromFirestore(
+    bookingSnapshot,
+  );
+
+  // ----------------------------------------------------------
+  // CHECK PENDING AMOUNT
+  // ----------------------------------------------------------
+
+  final pendingAmount =
+      booking.pendingAmount;
+
+  if (amount > pendingAmount) {
+    throw Exception(
+      'Payment cannot be greater than the pending amount.',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // CREATE PAYMENT
+  // ----------------------------------------------------------
+
+  final paymentRef =
+      bookingRef
+          .collection('payments')
+          .doc();
+
+  final now =
+      DateTime.now();
+
+  final payment =
+      PaymentModel(
+    id: paymentRef.id,
+
+    bookingId:
+        bookingId,
+
+    amount:
+        amount,
+
+    mode:
+        mode,
+
+    paymentDate:
+        paymentDate,
+
+    referenceNumber:
+        referenceNumber == null ||
+                referenceNumber
+                    .trim()
+                    .isEmpty
+            ? null
+            : referenceNumber
+                .trim(),
+
+    notes:
+        notes == null ||
+                notes.trim().isEmpty
+            ? null
+            : notes.trim(),
+
+    addedBy:
+        user.uid,
+
+    createdAt:
+        now,
+  );
+
+  // ----------------------------------------------------------
+  // NEW PAYMENT TOTALS
+  // ----------------------------------------------------------
+
+  final newPaidAmount =
+      booking.paidAmount +
+          amount;
+
+  final newPendingAmount =
+      booking.totalAmount -
+          newPaidAmount;
+
+  final finalPendingAmount =
+      newPendingAmount < 0
+          ? 0.0
+          : newPendingAmount;
+
+  final newPaymentStatus =
+      _calculatePaymentStatus(
+    totalAmount:
+        booking.totalAmount,
+    paidAmount:
+        newPaidAmount,
+  );
+
+  // ----------------------------------------------------------
+  // SAVE PAYMENT + UPDATE BOOKING
+  // ----------------------------------------------------------
+
+  final batch =
+      _firestore.batch();
+
+  batch.set(
+    paymentRef,
+    payment.toFirestore(),
+  );
+
+  batch.update(
+    bookingRef,
+    {
+      'paidAmount':
+          newPaidAmount,
+
+      'pendingAmount':
+          finalPendingAmount,
+
+      'paymentStatus':
+          BookingModel
+              .paymentStatusToString(
+        newPaymentStatus,
+      ),
+
+      'updatedAt':
+          FieldValue.serverTimestamp(),
+    },
+  );
+
+  await batch.commit();
+
+  return payment;
+}
   Future<BookingModel>
       createBooking({
     required String customerId,

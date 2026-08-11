@@ -7,6 +7,7 @@ import 'package:car_rental/models/booking_model.dart';
 import '../../app/theme.dart';
 import 'pickup_screen.dart';
 import 'return_screen.dart';
+import 'package:car_rental/models/payment_model.dart';
 class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
 
@@ -69,16 +70,57 @@ DateTime? _editPickupDateTime;
 DateTime? _editReturnDateTime;
 
 DateTime? _editLicenseExpiryDate;
+List<PaymentModel> _payments = [];
 
+bool _isLoadingPayments = false;
 bool _editTermsAccepted = false;
-  @override
-  @override
+  
+@override
 void initState() {
   super.initState();
 
   _booking = widget.booking;
 
   _initializeEditControllers();
+
+  _loadPayments();
+}
+@override
+void dispose() {
+  _customerNameController.dispose();
+  _customerPhoneController.dispose();
+
+  _pickupLocationController.dispose();
+  _returnLocationController.dispose();
+
+  _dailyRateController.dispose();
+  _hourlyRateController.dispose();
+
+  _baseRentalController.dispose();
+  _securityDepositController.dispose();
+
+  _extraKmController.dispose();
+  _fuelChargeController.dispose();
+  _lateReturnController.dispose();
+  _damageChargeController.dispose();
+  _otherChargesController.dispose();
+
+  _discountController.dispose();
+  _taxController.dispose();
+
+  _totalAmountController.dispose();
+  _paidAmountController.dispose();
+
+  _agreementNumberController.dispose();
+
+  _licenseNumberController.dispose();
+  _idProofTypeController.dispose();
+  _idProofNumberController.dispose();
+
+  _customerNotesController.dispose();
+  _internalNotesController.dispose();
+
+  super.dispose();
 }
 void _initializeEditControllers() {
   _customerNameController =
@@ -253,6 +295,41 @@ void _initializeEditControllers() {
       }
     }
   }
+  Future<void> _loadPayments() async {
+  if (_isLoadingPayments) return;
+
+  setState(() {
+    _isLoadingPayments = true;
+  });
+
+  try {
+    final payments =
+        await BookingService.instance
+            .getPayments(
+      bookingId: _booking.id,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _payments = payments;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    _showError(
+      _cleanError(
+        e.toString(),
+      ),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isLoadingPayments = false;
+      });
+    }
+  }
+}
   void _cancelEditing() {
   _initializeEditControllers();
 
@@ -567,6 +644,364 @@ Future<void> _saveChanges() async {
     }
   }
 }
+Future<void> _showAddPaymentDialog() async {
+  final amountController =
+      TextEditingController();
+
+  final referenceController =
+      TextEditingController();
+
+  final notesController =
+      TextEditingController();
+
+  PaymentMode selectedMode =
+      PaymentMode.cash;
+
+  DateTime paymentDate =
+      DateTime.now();
+
+  bool isSaving = false;
+
+  await showDialog(
+    context: context,
+    barrierDismissible: !isSaving,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (
+          context,
+          setDialogState,
+        ) {
+          return AlertDialog(
+            title: const Text(
+              'Add Payment',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize:
+                    MainAxisSize.min,
+                children: [
+                  _editField(
+                    label: 'Amount',
+                    controller:
+                        amountController,
+                    keyboardType:
+                        const TextInputType
+                            .numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  DropdownButtonFormField<
+                      PaymentMode>(
+                    value: selectedMode,
+                    decoration:
+                        const InputDecoration(
+                      labelText:
+                          'Payment Mode',
+                    ),
+                    items: PaymentMode
+                        .values
+                        .map(
+                          (mode) =>
+                              DropdownMenuItem(
+                            value: mode,
+                            child: Text(
+                              _paymentModeLabel(
+                                mode,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged:
+                        isSaving
+                            ? null
+                            : (value) {
+                                if (value ==
+                                    null) {
+                                  return;
+                                }
+
+                                setDialogState(
+                                  () {
+                                    selectedMode =
+                                        value;
+                                  },
+                                );
+                              },
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  InkWell(
+                    onTap:
+                        isSaving
+                            ? null
+                            : () async {
+                                final picked =
+                                    await showDatePicker(
+                                  context:
+                                      context,
+                                  initialDate:
+                                      paymentDate,
+                                  firstDate:
+                                      DateTime(
+                                    2020,
+                                  ),
+                                  lastDate:
+                                      DateTime(
+                                    2100,
+                                  ),
+                                );
+
+                                if (picked ==
+                                    null) {
+                                  return;
+                                }
+
+                                if (!context
+                                    .mounted) {
+                                  return;
+                                }
+
+                                final time =
+                                    await showTimePicker(
+                                  context:
+                                      context,
+                                  initialTime:
+                                      TimeOfDay
+                                          .fromDateTime(
+                                    paymentDate,
+                                  ),
+                                );
+
+                                if (time ==
+                                    null) {
+                                  return;
+                                }
+
+                                setDialogState(
+                                  () {
+                                    paymentDate =
+                                        DateTime(
+                                      picked.year,
+                                      picked.month,
+                                      picked.day,
+                                      time.hour,
+                                      time.minute,
+                                    );
+                                  },
+                                );
+                              },
+                    child: InputDecorator(
+                      decoration:
+                          const InputDecoration(
+                        labelText:
+                            'Payment Date',
+                        suffixIcon: Icon(
+                          Icons
+                              .calendar_month_rounded,
+                          size: 19,
+                        ),
+                      ),
+                      child: Text(
+                        DateFormat(
+                          'dd MMM yyyy • hh:mm a',
+                        ).format(
+                          paymentDate,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  _editField(
+                    label:
+                        'Reference Number',
+                    controller:
+                        referenceController,
+                  ),
+
+                  _editField(
+                    label: 'Notes',
+                    controller:
+                        notesController,
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+
+            actions: [
+              TextButton(
+                onPressed:
+                    isSaving
+                        ? null
+                        : () {
+                            Navigator.pop(
+                              dialogContext,
+                            );
+                          },
+                child: const Text(
+                  'Cancel',
+                ),
+              ),
+
+              ElevatedButton(
+                onPressed:
+                    isSaving
+                        ? null
+                        : () async {
+                            final amount =
+                                double.tryParse(
+                              amountController
+                                  .text
+                                  .trim(),
+                            );
+
+                            if (amount ==
+                                    null ||
+                                amount <= 0) {
+                              _showError(
+                                'Enter a valid payment amount.',
+                              );
+                              return;
+                            }
+
+                            if (amount >
+                                _booking
+                                    .pendingAmount) {
+                              _showError(
+                                'Payment cannot be greater than the pending amount.',
+                              );
+                              return;
+                            }
+
+                            setDialogState(
+                              () {
+                                isSaving = true;
+                              },
+                            );
+
+                            try {
+                              final payment =
+                                  await BookingService
+                                      .instance
+                                      .addPayment(
+                                bookingId:
+                                    _booking.id,
+                                amount:
+                                    amount,
+                                mode:
+                                    selectedMode,
+                                paymentDate:
+                                    paymentDate,
+                                referenceNumber:
+                                    referenceController
+                                        .text
+                                        .trim()
+                                        .isEmpty
+                                    ? null
+                                    : referenceController
+                                        .text
+                                        .trim(),
+                                notes:
+                                    notesController
+                                        .text
+                                        .trim()
+                                        .isEmpty
+                                    ? null
+                                    : notesController
+                                        .text
+                                        .trim(),
+                              );
+
+                              if (!mounted) {
+                                return;
+                              }
+
+                              Navigator.pop(
+                                dialogContext,
+                              );
+
+                              await _refreshBooking();
+
+                              if (!mounted) {
+                                return;
+                              }
+
+                              _showSuccess(
+                                'Payment of ${_money(payment.amount)} added successfully.',
+                              );
+                            } catch (error) {
+                              if (!mounted) {
+                                return;
+                              }
+
+                              setDialogState(
+                                () {
+                                  isSaving = false;
+                                },
+                              );
+
+                              _showError(
+                                _cleanError(
+                                  error.toString(),
+                                ),
+                              );
+                            }
+                          },
+                child:
+                    isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child:
+                                CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Add Payment',
+                          ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  
+}
+String _paymentModeLabel(
+  PaymentMode mode,
+) {
+  switch (mode) {
+    case PaymentMode.cash:
+      return 'Cash';
+
+    case PaymentMode.upi:
+      return 'UPI';
+
+    case PaymentMode.card:
+      return 'Card';
+
+    case PaymentMode.bankTransfer:
+      return 'Bank Transfer';
+
+    case PaymentMode.other:
+      return 'Other';
+  }
+}
 Future<List<Map<String, dynamic>>> _loadEditLogs() async {
   final snapshot = await FirebaseFirestore.instance
       .collection('bookings')
@@ -663,6 +1098,158 @@ Widget _buildEditHistory() {
       );
     },
   );
+}
+Widget _buildPaymentHistory() {
+  if (_isLoadingPayments) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: 16,
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+          ),
+        ),
+      ),
+    );
+  }
+
+  if (_payments.isEmpty) {
+    return const Padding(
+      padding: EdgeInsets.only(
+        top: 8,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          'No payments recorded yet.',
+          style: TextStyle(
+            fontSize: 10,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  return Column(
+    children: [
+      const SizedBox(height: 10),
+
+      ..._payments.map(
+        (payment) =>
+            _buildPaymentItem(payment),
+      ),
+    ],
+  );
+}
+Widget _buildPaymentItem(
+  PaymentModel payment,
+) {
+  return Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(
+      bottom: 8,
+    ),
+    padding: const EdgeInsets.all(11),
+    decoration: BoxDecoration(
+      color: AppColors.background,
+      borderRadius:
+          BorderRadius.circular(12),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color:
+                AppColors.primary.withValues(
+              alpha: 0.08,
+            ),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _paymentModeIcon(
+              payment.mode,
+            ),
+            size: 17,
+            color: AppColors.primary,
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                _money(payment.amount),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight:
+                      FontWeight.w800,
+                ),
+              ),
+
+              const SizedBox(height: 3),
+
+              Text(
+                '${_paymentModeLabel(payment.mode)} • '
+                '${DateFormat('dd MMM yyyy • hh:mm a').format(payment.paymentDate)}',
+                style: const TextStyle(
+                  fontSize: 9,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              ),
+
+              if (payment.referenceNumber !=
+                      null &&
+                  payment.referenceNumber!
+                      .isNotEmpty)
+                Text(
+                  'Ref: ${payment.referenceNumber}',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+IconData _paymentModeIcon(
+  PaymentMode mode,
+) {
+  switch (mode) {
+    case PaymentMode.cash:
+      return Icons.payments_outlined;
+
+    case PaymentMode.upi:
+      return Icons.qr_code_rounded;
+
+    case PaymentMode.card:
+      return Icons.credit_card_rounded;
+
+    case PaymentMode.bankTransfer:
+      return Icons.account_balance_rounded;
+
+    case PaymentMode.other:
+      return Icons.more_horiz_rounded;
+  }
 }
 Widget _buildEditLogItem(
   Map<String, dynamic> log,
@@ -1358,6 +1945,42 @@ Future<void> _startReturn() async {
             ),
             _buildPricingCard(),
             const SizedBox(
+              height: AppSpacing.lg,
+            ),
+            
+SizedBox(
+  width: double.infinity,
+  height: 44,
+  child: OutlinedButton.icon(
+    onPressed: _showAddPaymentDialog,
+    icon: const Icon(
+      Icons.add_rounded,
+      size: 18,
+    ),
+    label: const Text(
+      'Add Payment',
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: AppColors.primary,
+      side: BorderSide(
+        color: AppColors.primary,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+  ),
+),
+         const SizedBox(
+              height: AppSpacing.lg,
+            ),
+
+_buildPaymentHistory(),
+         const SizedBox(
               height: AppSpacing.lg,
             ),
             _buildInspectionCard(),
@@ -3061,6 +3684,7 @@ Widget _buildLocationCard() {
             _booking.paymentStatus,
           ),
         ),
+        
       ]),
     );
   }
@@ -3295,7 +3919,10 @@ Widget _buildLocationCard() {
           ),
         ),
 
-        const SizedBox(height: 4),
+
+        const SizedBox(height: 12),
+
+
 
         _buildEditPendingAmount(),
       ],
