@@ -1510,34 +1510,197 @@ void _showSuccess(String message) {
       ),
     );
 }
-  Future<void> _handleMainAction() async {
-    switch (_booking.status) {
-      case BookingStatus.booking:
-      case BookingStatus.pickupPending:
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PickupScreen(
-              booking: _booking,
+Future<void> _cancelBooking() async {
+  if (_booking.status == BookingStatus.completed ||
+      _booking.status == BookingStatus.cancelled ||
+      _booking.status == BookingStatus.noShow) {
+    return;
+  }
+
+  final reasonController = TextEditingController();
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      bool isCancelling = false;
+
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.red,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Cancel Booking',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ),
+
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Are you sure you want to cancel this booking?',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                TextField(
+                  controller: reasonController,
+                  maxLines: 3,
+                  enabled: !isCancelling,
+                  decoration: const InputDecoration(
+                    labelText: 'Cancellation Reason',
+                    hintText: 'Optional',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+
+            actions: [
+              TextButton(
+                onPressed: isCancelling
+                    ? null
+                    : () {
+                        Navigator.pop(
+                          dialogContext,
+                          false,
+                        );
+                      },
+                child: const Text('Keep Booking'),
+              ),
+
+              ElevatedButton(
+                onPressed: isCancelling
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          isCancelling = true;
+                        });
+
+                        try {
+                          await _bookingService.cancelBooking(
+                            bookingId: _booking.id,
+                            reason:
+                                reasonController.text.trim().isEmpty
+                                    ? null
+                                    : reasonController.text.trim(),
+                          );
+
+                          if (!mounted) return;
+
+                          Navigator.pop(
+                            dialogContext,
+                            true,
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+
+                          setDialogState(() {
+                            isCancelling = false;
+                          });
+
+                          _showError(
+                            _cleanError(e.toString()),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                ),
+                child: isCancelling
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Cancel Booking',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  reasonController.dispose();
+
+  if (confirmed != true || !mounted) {
+    return;
+  }
+
+  await _refreshBooking();
+
+  if (!mounted) return;
+
+  _showSuccess(
+    'Booking cancelled successfully.',
+  );
+}
+Future<void> _handleMainAction() async {
+  switch (_booking.status) {
+    case BookingStatus.booking:
+      // Booking confirmed → directly open PickupScreen
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PickupScreen(
+            booking: _booking,
           ),
-        );
+        ),
+      );
 
-        // PickupScreen can change the booking status, so refresh
-        // the details screen when we return.
-        if (mounted) {
-          await _refreshBooking();
-        }
-        return;
+      if (mounted) {
+        await _refreshBooking();
+      }
 
-      case BookingStatus.pickup:
-  await _startRental();
-  return;
+      return;
 
-      case BookingStatus.active:
-  await _startReturn();
-  return;
+    case BookingStatus.pickup:
+      // Pickup completed → rental becomes active
+      await _startRental();
+      return;
 
-      case BookingStatus.returnPending:
+    case BookingStatus.active:
+      // Rental active → directly open ReturnScreen
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ReturnScreen(
+            booking: _booking,
+          ),
+        ),
+      );
+
+      if (mounted) {
+        await _refreshBooking();
+      }
+
+      return;
+
+    case BookingStatus.returning:
   await Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => ReturnScreen(
@@ -1552,31 +1715,33 @@ void _showSuccess(String message) {
 
   return;
 
-      case BookingStatus.returning:
-        _showMessage(
-          'Complete the return inspection to finish this booking.',
-        );
-        return;
+    case BookingStatus.completed:
+      _showMessage(
+        'This booking is already completed.',
+      );
+      return;
 
-      case BookingStatus.completed:
-        _showMessage(
-          'This booking is already completed.',
-        );
-        return;
+    case BookingStatus.cancelled:
+      _showMessage(
+        'This booking has been cancelled.',
+      );
+      return;
 
-      case BookingStatus.cancelled:
-        _showMessage(
-          'This booking has been cancelled.',
-        );
-        return;
+    case BookingStatus.noShow:
+      _showMessage(
+        'This booking is marked as no-show.',
+      );
+      return;
 
-      case BookingStatus.noShow:
-        _showMessage(
-          'This booking is marked as no-show.',
-        );
-        return;
-    }
+    // These are kept only because they still exist
+    // in the BookingStatus enum.
+    case BookingStatus.pickupPending:
+      return;
+
+    case BookingStatus.returnPending:
+      return;
   }
+}
 Future<void> _startRental() async {
   try {
     await _bookingService.startRental(
@@ -1603,32 +1768,7 @@ Future<void> _startRental() async {
     );
   }
 }
-Future<void> _startReturn() async {
-  try {
-    await _bookingService.markReturnPending(
-      _booking.id,
-    );
 
-    if (!mounted) return;
-
-    await _refreshBooking();
-
-    if (!mounted) return;
-
-    _showMessage(
-      'Booking moved to Return Pending.',
-    );
-  } catch (e) {
-    if (!mounted) return;
-
-    _showMessage(
-      e.toString().replaceFirst(
-        'Exception: ',
-        '',
-      ),
-    );
-  }
-}
   // ============================================================
   // HELPERS
   // ============================================================
@@ -1642,38 +1782,39 @@ Future<void> _startReturn() async {
         .trim();
   }
 
-  String _statusLabel(
-    BookingStatus status,
-  ) {
-    switch (status) {
-      case BookingStatus.booking:
-        return 'Booking';
+ String _statusLabel(
+  BookingStatus status,
+) {
+  switch (status) {
+    case BookingStatus.booking:
+      return 'Booking';
 
-      case BookingStatus.pickupPending:
-        return 'Pickup Pending';
+    case BookingStatus.pickupPending:
+      return 'Pickup Pending';
 
-      case BookingStatus.pickup:
-        return 'Pickup';
+    case BookingStatus.pickup:
+      return 'Pickup';
 
-      case BookingStatus.active:
-        return 'Active';
+    case BookingStatus.active:
+      return 'Active';
 
-      case BookingStatus.returnPending:
-        return 'Return Pending';
+    case BookingStatus.returning:
+      return 'Returning';
 
-      case BookingStatus.returning:
-        return 'Returning';
+    case BookingStatus.completed:
+      return 'Completed';
 
-      case BookingStatus.completed:
-        return 'Completed';
+    case BookingStatus.cancelled:
+      return 'Cancelled';
 
-      case BookingStatus.cancelled:
-        return 'Cancelled';
+    case BookingStatus.noShow:
+      return 'No Show';
 
-      case BookingStatus.noShow:
-        return 'No Show';
-    }
+    // Legacy Firestore data only.
+    case BookingStatus.returnPending:
+      return 'Active';
   }
+}
 
   Color _statusColor(
     BookingStatus status,
@@ -1818,36 +1959,38 @@ Future<void> _startReturn() async {
     }
   }
 
-  String _mainActionLabel() {
-    switch (_booking.status) {
-      case BookingStatus.booking:
-        return 'Prepare Pickup';
+ String _mainActionLabel() {
+  switch (_booking.status) {
+    case BookingStatus.booking:
+      return 'Prepare Pickup';
 
-      case BookingStatus.pickupPending:
-        return 'Start Pickup';
+    case BookingStatus.pickupPending:
+      return 'Start Pickup';
 
-      case BookingStatus.pickup:
-        return 'Start Rental';
+    case BookingStatus.pickup:
+      return 'Start Rental';
 
-      case BookingStatus.active:
-        return 'Start Return';
+    case BookingStatus.active:
+      return 'Start Return Inspection';
 
-      case BookingStatus.returnPending:
-        return 'Process Return';
+    case BookingStatus.returning:
+      return 'Continue Return Inspection';
 
-      case BookingStatus.returning:
-        return 'Complete Return';
+    case BookingStatus.completed:
+      return 'View Completed';
 
-      case BookingStatus.completed:
-        return 'View Completed';
+    case BookingStatus.cancelled:
+      return 'Booking Cancelled';
 
-      case BookingStatus.cancelled:
-        return 'Booking Cancelled';
+    case BookingStatus.noShow:
+      return 'Booking No-Show';
 
-      case BookingStatus.noShow:
-        return 'Booking No-Show';
-    }
+    // Legacy status only.
+    // It should never be created anymore.
+    case BookingStatus.returnPending:
+      return 'Start Return Inspection';
   }
+}
 
   bool _mainActionEnabled() {
     return _booking.status !=
@@ -3320,45 +3463,34 @@ Widget _buildLocationCard() {
   // ============================================================
 
   Widget _buildStatusTimeline() {
-    final steps =
-        <_TimelineStep>[
-      _TimelineStep(
-        BookingStatus.booking,
-        'Booking',
-        'Reservation created',
-      ),
-      _TimelineStep(
-        BookingStatus.pickupPending,
-        'Pickup Pending',
-        'Waiting for handover',
-      ),
-      _TimelineStep(
-        BookingStatus.pickup,
-        'Pickup',
-        'Handover recorded',
-      ),
-      _TimelineStep(
-        BookingStatus.active,
-        'Active Rental',
-        'Vehicle is with customer',
-      ),
-      _TimelineStep(
-        BookingStatus.returnPending,
-        'Return Pending',
-        'Vehicle return expected',
-      ),
-      _TimelineStep(
-        BookingStatus.returning,
-        'Returning',
-        'Return inspection in progress',
-      ),
-      _TimelineStep(
-        BookingStatus.completed,
-        'Completed',
-        'Rental closed',
-      ),
-    ];
+    final steps = <_TimelineStep>[
+  _TimelineStep(
+    BookingStatus.booking,
+    'Booking',
+    'Reservation created',
+  ),
 
+  _TimelineStep(
+    BookingStatus.pickup,
+    'Pickup',
+    'Handover recorded',
+  ),
+  _TimelineStep(
+    BookingStatus.active,
+    'Active Rental',
+    'Vehicle is with customer',
+  ),
+  _TimelineStep(
+    BookingStatus.returning,
+    'Returning',
+    'Return inspection in progress',
+  ),
+  _TimelineStep(
+    BookingStatus.completed,
+    'Completed',
+    'Rental closed',
+  ),
+];
     final currentIndex =
         _timelineIndex(
       _booking.status,
@@ -3404,35 +3536,37 @@ Widget _buildLocationCard() {
   }
 
   int _timelineIndex(
-    BookingStatus status,
-  ) {
-    switch (status) {
-      case BookingStatus.booking:
-        return 0;
+  BookingStatus status,
+) {
+  switch (status) {
+    case BookingStatus.booking:
+      return 0;
 
-      case BookingStatus.pickupPending:
-        return 1;
+    case BookingStatus.pickupPending:
+      return 1;
 
-      case BookingStatus.pickup:
-        return 2;
+    case BookingStatus.pickup:
+      return 1;
 
-      case BookingStatus.active:
-        return 3;
+    case BookingStatus.active:
+      return 2;
 
-      case BookingStatus.returnPending:
-        return 4;
+    case BookingStatus.returning:
+      return 3;
 
-      case BookingStatus.returning:
-        return 5;
+    case BookingStatus.completed:
+      return 4;
 
-      case BookingStatus.completed:
-        return 6;
+    case BookingStatus.cancelled:
+    case BookingStatus.noShow:
+      return -1;
 
-      case BookingStatus.cancelled:
-      case BookingStatus.noShow:
-        return -1;
-    }
+    // Legacy status.
+    // Do not show it as a separate timeline step.
+    case BookingStatus.returnPending:
+      return 3;
   }
+}
 
   Widget _timelineRow({
     required _TimelineStep step,
@@ -4703,7 +4837,7 @@ String _paymentStatusLabel(
   // BOTTOM ACTION
   // ============================================================
 
-  Widget _buildBottomAction(
+Widget _buildBottomAction(
   Color statusColor,
 ) {
   // ==========================================================
@@ -4744,10 +4878,6 @@ String _paymentStatusLabel(
                   AppColors.primary,
               foregroundColor:
                   Colors.white,
-              disabledBackgroundColor:
-                  AppColors.background,
-              disabledForegroundColor:
-                  AppColors.textSecondary,
               elevation: 0,
               shape:
                   RoundedRectangleBorder(
@@ -4770,17 +4900,13 @@ String _paymentStatusLabel(
                       )
                     : const Row(
                         mainAxisAlignment:
-                            MainAxisAlignment
-                                .center,
+                            MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons
-                                .check_rounded,
+                            Icons.check_rounded,
                             size: 19,
                           ),
-                          SizedBox(
-                            width: 8,
-                          ),
+                          SizedBox(width: 8),
                           Text(
                             'Save Changes',
                             style: TextStyle(
@@ -4798,11 +4924,103 @@ String _paymentStatusLabel(
   }
 
   // ==========================================================
-  // NORMAL BOOKING MODE
+  // NORMAL MODE
   // ==========================================================
 
-  final enabled =
+  final canCancel =
+      _booking.status !=
+              BookingStatus.completed &&
+          _booking.status !=
+              BookingStatus.cancelled &&
+          _booking.status !=
+              BookingStatus.noShow;
+
+  final canAddPayment =
+      _booking.pendingAmount > 0 &&
+      _booking.status !=
+          BookingStatus.cancelled &&
+      _booking.status !=
+          BookingStatus.noShow;
+
+  final mainActionEnabled =
       _mainActionEnabled();
+
+  // ==========================================================
+  // COMPLETED / CANCELLED / NO SHOW
+  // ==========================================================
+
+  if (!canCancel) {
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          12,
+          AppSpacing.xl,
+          12,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border(
+            top: BorderSide(
+              color: AppColors.border,
+            ),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+
+            // ==================================================
+            // ADD PAYMENT
+            // ==================================================
+
+            if (canAddPayment) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      _showAddPaymentDialog,
+                  icon: const Icon(
+                    Icons.add_rounded,
+                    size: 18,
+                  ),
+                  label: const Text(
+                    'Add Payment',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          FontWeight.w800,
+                    ),
+                  ),
+                  style:
+                      OutlinedButton.styleFrom(
+                    foregroundColor:
+                        AppColors.primary,
+                    side: const BorderSide(
+                      color:
+                          AppColors.primary,
+                    ),
+                    shape:
+                        RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                        AppRadius.lg,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================================
+  // ACTIVE / NORMAL BOOKING
+  // ==========================================================
 
   return SafeArea(
     child: Container(
@@ -4820,67 +5038,181 @@ String _paymentStatusLabel(
           ),
         ),
       ),
-      child: SizedBox(
-        width: double.infinity,
-        height: 50,
-        child: ElevatedButton(
-          onPressed:
-              enabled
-                  ? _handleMainAction
-                  : null,
-          style:
-              ElevatedButton.styleFrom(
-            minimumSize: const Size(
-              double.infinity,
-              50,
-            ),
-            backgroundColor:
-                enabled
-                    ? statusColor
-                    : AppColors.background,
-            foregroundColor:
-                enabled
-                    ? Colors.white
-                    : AppColors.textSecondary,
-            disabledBackgroundColor:
-                AppColors.background,
-            disabledForegroundColor:
-                AppColors.textSecondary,
-            elevation: 0,
-            shape:
-                RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(
-                AppRadius.lg,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+
+          // ==================================================
+          // MAIN ACTION
+          // ==================================================
+
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed:
+                  mainActionEnabled
+                      ? _handleMainAction
+                      : null,
+              style:
+                  ElevatedButton.styleFrom(
+                minimumSize:
+                    const Size(
+                  double.infinity,
+                  50,
+                ),
+                backgroundColor:
+                    mainActionEnabled
+                        ? statusColor
+                        : AppColors.background,
+                foregroundColor:
+                    mainActionEnabled
+                        ? Colors.white
+                        : AppColors.textSecondary,
+                elevation: 0,
+                shape:
+                    RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    AppRadius.lg,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _mainActionLabel(),
+                    style:
+                        const TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          FontWeight.w800,
+                    ),
+                  ),
+
+                  if (mainActionEnabled) ...[
+                    const SizedBox(width: 7),
+                    const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 18,
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
-          child: Row(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
-            children: [
-              Text(
-                _mainActionLabel(),
-                style:
-                    const TextStyle(
-                  fontSize: 12,
-                  fontWeight:
-                      FontWeight.w800,
-                ),
-              ),
-              if (enabled) ...[
-                const SizedBox(
-                  width: 7,
-                ),
-                const Icon(
-                  Icons
-                      .arrow_forward_rounded,
-                  size: 18,
-                ),
+
+          // ==================================================
+          // ADD PAYMENT + CANCEL BOOKING
+          // TWO COLUMNS
+          // ==================================================
+
+          if (canAddPayment || canCancel) ...[
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+
+                // ============================================
+                // ADD PAYMENT
+                // ============================================
+
+                if (canAddPayment)
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _showAddPaymentDialog,
+                        icon: const Icon(
+                          Icons.add_rounded,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'Add Payment',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                FontWeight.w800,
+                          ),
+                        ),
+                        style:
+                            OutlinedButton.styleFrom(
+                          foregroundColor:
+                              AppColors.primary,
+                          side:
+                              const BorderSide(
+                            color:
+                                AppColors.primary,
+                          ),
+                          shape:
+                              RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(
+                              AppRadius.lg,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // ============================================
+                // GAP
+                // ============================================
+
+                if (canAddPayment && canCancel)
+                  const SizedBox(width: 10),
+
+                // ============================================
+                // CANCEL BOOKING
+                // ============================================
+
+                if (canCancel)
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _cancelBooking,
+                        icon: const Icon(
+                          Icons.cancel_outlined,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'Cancel Booking',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                FontWeight.w800,
+                          ),
+                        ),
+                        style:
+                            OutlinedButton.styleFrom(
+                          foregroundColor:
+                              AppColors.danger,
+                          side:
+                              const BorderSide(
+                            color:
+                                AppColors.danger,
+                          ),
+                          shape:
+                              RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(
+                              AppRadius.lg,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
-            ],
-          ),
-        ),
+            ),
+          ],
+        ],
       ),
     ),
   );

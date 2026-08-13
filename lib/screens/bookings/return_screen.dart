@@ -119,16 +119,14 @@ class _ReturnScreenState extends State<ReturnScreen> {
   // STATUS
   // ============================================================
 
-  bool get _isReturnPending =>
-      _booking.status ==
-      BookingStatus.returnPending;
+bool get _isActive =>
+    _booking.status == BookingStatus.active;
 
-  bool get _isReturning =>
-      _booking.status ==
-      BookingStatus.returning;
+bool get _isReturning =>
+    _booking.status == BookingStatus.returning;
 
-  bool get _canComplete =>
-      _isReturning;
+bool get _canComplete =>
+    _isReturning;
 
   // ============================================================
   // PARSING
@@ -242,84 +240,71 @@ class _ReturnScreenState extends State<ReturnScreen> {
   // before the final completion step.
   // ============================================================
 
-  Future<void> _startReturnProcessing() async {
-    if (_isSaving) return;
+ Future<void> _startReturnProcessing() async {
+  if (_isSaving) return;
 
-    setState(() {
-      _isSaving = true;
+  setState(() {
+    _isSaving = true;
+  });
+
+  try {
+    final ref = _firestore
+        .collection('bookings')
+        .doc(_booking.id);
+
+    final snapshot = await ref.get();
+
+    if (!snapshot.exists) {
+      throw Exception('Booking not found.');
+    }
+
+    final current =
+        BookingModel.fromFirestore(snapshot);
+
+    // Return can start ONLY from ACTIVE.
+    if (current.status != BookingStatus.active) {
+      setState(() {
+        _booking = current;
+      });
+
+      throw Exception(
+        'Return can only be started for an active booking.',
+      );
+    }
+
+    final now = DateTime.now();
+
+    await ref.update({
+      'status': BookingStatus.returning.name,
+      'updatedAt': Timestamp.fromDate(now),
     });
 
-    try {
-      final ref =
-          _firestore
-              .collection('bookings')
-              .doc(_booking.id);
+    if (!mounted) return;
 
-      final snapshot =
-          await ref.get();
-
-      if (!snapshot.exists) {
-        throw Exception(
-          'Booking not found.',
-        );
-      }
-
-      final current =
-          BookingModel.fromFirestore(
-        snapshot,
+    setState(() {
+      _booking = current.copyWith(
+        status: BookingStatus.returning,
+        updatedAt: now,
       );
+    });
 
-      if (current.status !=
-          BookingStatus.returnPending) {
-        setState(() {
-          _booking = current;
-        });
+    _showMessage(
+      'Return inspection started.',
+    );
+  } catch (e) {
+    if (!mounted) return;
 
-        throw Exception(
-          'This booking is no longer in Return Pending status.',
-        );
-      }
-
-      final now =
-          DateTime.now();
-
-      await ref.update({
-        'status':
-            BookingStatus.returning.name,
-        'updatedAt':
-            Timestamp.fromDate(now),
-      });
-
-      if (!mounted) return;
-
+    _showError(
+      _cleanError(e.toString()),
+    );
+  } finally {
+    if (mounted) {
       setState(() {
-        _booking = current.copyWith(
-          status:
-              BookingStatus.returning,
-          updatedAt:
-              now,
-        );
+        _isSaving = false;
       });
-
-      _showMessage(
-        'Return inspection started.',
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      _showError(
-        _cleanError(
-          e.toString(),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
     }
   }
+}
 
   // ============================================================
   // COMPLETE BOOKING
@@ -763,14 +748,18 @@ _isSaving = false;
 
   Widget _buildHeader() {
     final statusColor =
-        _isReturning
-            ? AppColors.primary
-            : AppColors.warning;
+    _isReturning
+        ? AppColors.primary
+        : _isActive
+            ? AppColors.success
+            : AppColors.textSecondary;
 
-    final statusText =
-        _isReturning
-            ? 'Returning'
-            : 'Return Pending';
+final statusText =
+    _isReturning
+        ? 'Returning'
+        : _isActive
+            ? 'Active'
+            : 'Return Unavailable';
 
     return Container(
       padding:
@@ -876,9 +865,11 @@ _isSaving = false;
             height: AppSpacing.lg,
           ),
           Text(
-            _isReturning
-                ? 'Complete the final vehicle inspection and payment before closing this rental.'
-                : 'Start the return inspection when the vehicle is physically received.',
+  _isReturning
+      ? 'Complete the final vehicle inspection and payment before closing this rental.'
+      : _isActive
+          ? 'Start the return inspection when the vehicle is physically received.'
+          : 'This booking is not available for return.',
             style:
                 const TextStyle(
               fontSize: 10,
@@ -1377,19 +1368,19 @@ _isSaving = false;
       child:
           Column(
         children: [
-          _chargeField(
-            controller:
-                _paidAmountController,
-            label:
-                'Paid Amount',
-            icon:
-                Icons.payments_outlined,
-            enabled:
-                _isReturning,
-          ),
-          const SizedBox(
-            height: 14,
-          ),
+          // _chargeField(
+          //   controller:
+          //       _paidAmountController,
+          //   label:
+          //       'Paid Amount',
+          //   icon:
+          //       Icons.payments_outlined,
+          //   enabled:
+          //       _isReturning,
+          // ),
+          // const SizedBox(
+          //   height: 14,
+          // ),
           _summaryRow(
             'Final Total',
             '₹ ${_money(_finalTotal)}',
@@ -1651,127 +1642,107 @@ _isSaving = false;
   // BOTTOM ACTION
   // ============================================================
 
-  Widget _buildBottomAction({
-    required bool isEditable,
-  }) {
-    final bool startProcessing =
-        _isReturnPending;
+Widget _buildBottomAction({
+  required bool isEditable,
+}) {
+  final bool startProcessing =
+      _isActive;
 
-    final bool complete =
-        _isReturning;
+  final bool complete =
+      _isReturning;
 
-    final enabled =
-        !_isSaving &&
-        (startProcessing ||
-            complete);
+  final bool enabled =
+      !_isSaving &&
+      (startProcessing || complete);
 
-    final label =
-        startProcessing
-            ? 'Start Return Inspection'
-            : complete
-                ? 'Complete Booking'
-                : 'Return Unavailable';
+  final String label =
+      startProcessing
+          ? 'Start Return Inspection'
+          : complete
+              ? 'Complete Booking'
+              : 'Return Unavailable';
 
-    return SafeArea(
-      child:
-          Container(
-        padding:
-            const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          12,
-          AppSpacing.xl,
-          12,
-        ),
-        decoration:
-            const BoxDecoration(
-          color:
-              AppColors.surface,
-          border:
-              Border(
-            top:
-                BorderSide(
-              color:
-                  AppColors.border,
-            ),
-          ),
-        ),
-        child:
-            SizedBox(
-          width:
-              double.infinity,
-          height: 52,
-          child:
-              ElevatedButton(
-            onPressed:
-                enabled
-                    ? (startProcessing
-                        ? _startReturnProcessing
-                        : _completeReturn)
-                    : null,
-            style:
-                ElevatedButton.styleFrom(
-              minimumSize:
-                  const Size(
-                double.infinity,
-                52,
-              ),
-              backgroundColor:
-                  enabled
-                      ? AppColors.primary
-                      : AppColors.background,
-              foregroundColor:
-                  enabled
-                      ? Colors.white
-                      : AppColors.textSecondary,
-              elevation:
-                  0,
-              shape:
-                  RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(
-                  AppRadius.lg,
-                ),
-              ),
-            ),
-            child:
-                _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child:
-                            CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color:
-                              Colors.white,
-                        ),
-                      )
-                    : Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            label,
-                            style:
-                                const TextStyle(
-                              fontSize: 12,
-                              fontWeight:
-                                  FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(
-                            width: 7,
-                          ),
-                          const Icon(
-                            Icons.arrow_forward_rounded,
-                            size: 18,
-                          ),
-                        ],
-                      ),
+  return SafeArea(
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        12,
+        AppSpacing.xl,
+        12,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.border,
           ),
         ),
       ),
-    );
-  }
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton(
+          onPressed: enabled
+              ? (startProcessing
+                  ? _startReturnProcessing
+                  : _completeReturn)
+              : null,
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(
+              double.infinity,
+              52,
+            ),
+            backgroundColor: enabled
+                ? AppColors.primary
+                : AppColors.background,
+            foregroundColor: enabled
+                ? Colors.white
+                : AppColors.textSecondary,
+            disabledForegroundColor:
+                AppColors.textSecondary,
+            disabledBackgroundColor:
+                AppColors.background,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                AppRadius.lg,
+              ),
+            ),
+          ),
+          child: _isSaving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment:
+                      MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (enabled) ...[
+                      const SizedBox(width: 7),
+                      const Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 18,
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+      ),
+    ),
+  );
+}
 
   // ============================================================
   // COMMON WIDGETS

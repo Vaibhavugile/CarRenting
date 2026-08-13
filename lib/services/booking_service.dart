@@ -1365,75 +1365,119 @@ await _vehicles
   // pickup
   // ============================================================
 
-  Future<BookingModel> startPickup({
-    required String bookingId,
-    required int startingKm,
-    required FuelLevel fuelAtPickup,
-  }) async {
-    final user = currentUser;
+Future<BookingModel> startPickup({
+  required String bookingId,
+  required int startingKm,
+  required FuelLevel fuelAtPickup,
+}) async {
+  // ==========================================================
+  // AUTHENTICATION
+  // ==========================================================
 
-    if (user == null) {
-      throw Exception(
-        'You must be logged in.',
-      );
-    }
+  final user = currentUser;
 
-    final bookingRef =
-        _bookings.doc(bookingId);
-
-    final snapshot =
-        await bookingRef.get();
-
-    if (!snapshot.exists) {
-      throw Exception(
-        'Booking not found.',
-      );
-    }
-
-    final booking =
-        BookingModel.fromFirestore(
-      snapshot,
-    );
-
-    if (booking.status !=
-        BookingStatus.pickupPending) {
-      throw Exception(
-        'This booking is not ready for pickup.',
-      );
-    }
-
-    if (startingKm < 0) {
-      throw Exception(
-        'Starting KM cannot be negative.',
-      );
-    }
-
-    await bookingRef.update({
-      'status':
-         BookingModel.statusToString(
-        BookingStatus.pickup,
-      ),
-      'startingKm':
-          startingKm,
-      'fuelAtPickup':
-          BookingModel.fuelToString(
-        fuelAtPickup,
-      ),
-      'updatedAt':
-          FieldValue.serverTimestamp(),
-    });
-
-    return booking.copyWith(
-      status:
-          BookingStatus.pickup,
-      startingKm:
-          startingKm,
-      fuelAtPickup:
-          fuelAtPickup,
-      updatedAt:
-          DateTime.now(),
+  if (user == null) {
+    throw Exception(
+      'You must be logged in.',
     );
   }
+
+  // ==========================================================
+  // GET BOOKING
+  // ==========================================================
+
+  final bookingRef =
+      _bookings.doc(bookingId);
+
+  final snapshot =
+      await bookingRef.get();
+
+  if (!snapshot.exists) {
+    throw Exception(
+      'Booking not found.',
+    );
+  }
+
+  final booking =
+      BookingModel.fromFirestore(
+    snapshot,
+  );
+
+  // ==========================================================
+  // VALIDATE BOOKING STATUS
+  //
+  // NEW FLOW:
+  //
+  // booking
+  //    ↓
+  // pickup screen
+  //    ↓
+  // startPickup()
+  //    ↓
+  // pickup
+  //
+  // pickupPending is NO LONGER used.
+  // ==========================================================
+
+  if (booking.status !=
+      BookingStatus.booking) {
+    throw Exception(
+      'This booking is not ready for pickup.',
+    );
+  }
+
+  // ==========================================================
+  // VALIDATE STARTING KM
+  // ==========================================================
+
+  if (startingKm < 0) {
+    throw Exception(
+      'Starting KM cannot be negative.',
+    );
+  }
+
+  // ==========================================================
+  // UPDATE BOOKING
+  //
+  // booking → pickup
+  // ==========================================================
+
+  await bookingRef.update({
+    'status':
+        BookingModel.statusToString(
+      BookingStatus.pickup,
+    ),
+
+    'startingKm':
+        startingKm,
+
+    'fuelAtPickup':
+        BookingModel.fuelToString(
+      fuelAtPickup,
+    ),
+
+    'updatedAt':
+        FieldValue.serverTimestamp(),
+  });
+
+  // ==========================================================
+  // RETURN UPDATED BOOKING
+  // ==========================================================
+
+  return booking.copyWith(
+    status:
+        BookingStatus.pickup,
+
+    startingKm:
+        startingKm,
+
+    fuelAtPickup:
+        fuelAtPickup,
+
+    updatedAt:
+        DateTime.now(),
+  );
+}
 
   // ============================================================
   // START RENTAL

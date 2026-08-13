@@ -57,62 +57,17 @@ class _PickupScreenState
   // ============================================================
   // STATUS
   // ============================================================
+bool get _isBooking =>
+    _booking.status == BookingStatus.booking;
 
-  bool get _isBooking =>
-      _booking.status ==
-      BookingStatus.booking;
-
-  bool get _isPickupPending =>
-      _booking.status ==
-      BookingStatus.pickupPending;
-
-  bool get _isPickupRecorded =>
-      _booking.status ==
-      BookingStatus.pickup;
+bool get _isPickupRecorded =>
+    _booking.status == BookingStatus.pickup;
 
   // ============================================================
   // ACTION
   // ============================================================
 
-  Future<void> _preparePickup() async {
-    if (_isSaving) return;
-
-    setState(() {
-      _isSaving = true;
-    });
-
-    try {
-      final updated =
-          await _bookingService
-              .markPickupPending(
-        _booking.id,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _booking = updated;
-      });
-
-      _showMessage(
-        'Booking moved to Pickup Pending.',
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      _showError(
-        _cleanError(
-          e.toString(),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
-    }
-  }
+  
 
   Future<void> _startPickup() async {
     if (_isSaving) return;
@@ -374,10 +329,10 @@ class _PickupScreenState
     );
 
     final canRecordPickup =
-        _isPickupPending;
+    _isBooking;
 
-    final pickupAlreadyRecorded =
-        _isPickupRecorded;
+final pickupAlreadyRecorded =
+    _isPickupRecorded;
 
     return Scaffold(
       backgroundColor:
@@ -449,12 +404,7 @@ class _PickupScreenState
             const SizedBox(
               height: AppSpacing.lg,
             ),
-            if (_isBooking) ...[
-              _buildPrepareCard(),
-              const SizedBox(
-                height: AppSpacing.lg,
-              ),
-            ],
+            
             _buildOdometerCard(
               enabled:
                   canRecordPickup,
@@ -1432,24 +1382,17 @@ class _PickupScreenState
   }) {
     String label;
 
-    if (_isBooking) {
-      label =
-          'Move to Pickup Pending';
-    } else if (canRecordPickup) {
-      label =
-          'Confirm Pickup';
-    } else if (pickupAlreadyRecorded) {
-      label =
-          'Pickup Recorded';
-    } else {
-      label =
-          'Pickup Not Available';
-    }
+if (_isBooking) {
+  label = 'Confirm Pickup';
+} else if (pickupAlreadyRecorded) {
+  label = 'Pickup Recorded';
+} else {
+  label = 'Pickup Not Available';
+}
 
-    final enabled =
-        !_isSaving &&
-        (_isBooking ||
-            canRecordPickup);
+final enabled =
+    !_isSaving &&
+    _isBooking;
 
     return SafeArea(
       child:
@@ -1482,11 +1425,9 @@ class _PickupScreenState
           child:
               ElevatedButton(
             onPressed:
-                enabled
-                    ? (_isBooking
-                        ? _preparePickup
-                        : _startPickup)
-                    : null,
+    enabled
+        ? _startPickup
+        : null,
             style:
                 ElevatedButton.styleFrom(
               minimumSize:
