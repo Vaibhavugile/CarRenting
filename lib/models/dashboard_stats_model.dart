@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DashboardStatsModel {
@@ -22,9 +21,9 @@ class DashboardStatsModel {
   // BOOKING STATISTICS
   // ============================================================
 
-  final int todayBookings;
-  final int activeBookings;
-  final int upcomingBookings;
+  final int todayCreatedBookings;
+  final int todayPickupBookings;
+  final int todayReturnBookings;
 
   // ============================================================
   // REVENUE
@@ -64,9 +63,9 @@ class DashboardStatsModel {
     required this.rentedVehicles,
     required this.maintenanceVehicles,
 
-    required this.todayBookings,
-    required this.activeBookings,
-    required this.upcomingBookings,
+    required this.todayCreatedBookings,
+    required this.todayPickupBookings,
+    required this.todayReturnBookings,
 
     required this.todayRevenue,
     required this.monthRevenue,
@@ -80,8 +79,6 @@ class DashboardStatsModel {
 
   // ============================================================
   // EMPTY / INITIAL MODEL
-  //
-  // Used when a new branch is created.
   // ============================================================
 
   factory DashboardStatsModel.empty(
@@ -97,64 +94,51 @@ class DashboardStatsModel {
       // VEHICLES
       // --------------------------------------------------------
 
-      totalVehicles:
-          0,
+      totalVehicles: 0,
 
-      availableVehicles:
-          0,
+      availableVehicles: 0,
 
-      reservedVehicles:
-          0,
+      reservedVehicles: 0,
 
-      rentedVehicles:
-          0,
+      rentedVehicles: 0,
 
-      maintenanceVehicles:
-          0,
+      maintenanceVehicles: 0,
 
       // --------------------------------------------------------
       // BOOKINGS
       // --------------------------------------------------------
 
-      todayBookings:
-          0,
+      todayCreatedBookings: 0,
 
-      activeBookings:
-          0,
+      todayPickupBookings: 0,
 
-      upcomingBookings:
-          0,
+      todayReturnBookings: 0,
 
       // --------------------------------------------------------
       // REVENUE
       // --------------------------------------------------------
 
-      todayRevenue:
-          0.0,
+      todayRevenue: 0.0,
 
-      monthRevenue:
-          0.0,
+      monthRevenue: 0.0,
 
       // --------------------------------------------------------
       // PAYMENTS
       // --------------------------------------------------------
 
-      pendingPayments:
-          0.0,
+      pendingPayments: 0.0,
 
       // --------------------------------------------------------
       // CUSTOMERS
       // --------------------------------------------------------
 
-      totalCustomers:
-          0,
+      totalCustomers: 0,
 
       // --------------------------------------------------------
       // TIMESTAMP
       // --------------------------------------------------------
 
-      updatedAt:
-          DateTime.now(),
+      updatedAt: DateTime.now(),
     );
   }
 
@@ -163,8 +147,7 @@ class DashboardStatsModel {
   // ============================================================
 
   factory DashboardStatsModel.fromFirestore(
-    DocumentSnapshot<
-        Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data =
         doc.data() ?? {};
@@ -216,19 +199,19 @@ class DashboardStatsModel {
       // BOOKINGS
       // --------------------------------------------------------
 
-      todayBookings:
+      todayCreatedBookings:
           _toInt(
-        data['todayBookings'],
+        data['todayCreatedBookings'],
       ),
 
-      activeBookings:
+      todayPickupBookings:
           _toInt(
-        data['activeBookings'],
+        data['todayPickupBookings'],
       ),
 
-      upcomingBookings:
+      todayReturnBookings:
           _toInt(
-        data['upcomingBookings'],
+        data['todayReturnBookings'],
       ),
 
       // --------------------------------------------------------
@@ -310,14 +293,14 @@ class DashboardStatsModel {
       // BOOKINGS
       // --------------------------------------------------------
 
-      'todayBookings':
-          todayBookings,
+      'todayCreatedBookings':
+          todayCreatedBookings,
 
-      'activeBookings':
-          activeBookings,
+      'todayPickupBookings':
+          todayPickupBookings,
 
-      'upcomingBookings':
-          upcomingBookings,
+      'todayReturnBookings':
+          todayReturnBookings,
 
       // --------------------------------------------------------
       // REVENUE
@@ -367,9 +350,9 @@ class DashboardStatsModel {
     int? rentedVehicles,
     int? maintenanceVehicles,
 
-    int? todayBookings,
-    int? activeBookings,
-    int? upcomingBookings,
+    int? todayCreatedBookings,
+    int? todayPickupBookings,
+    int? todayReturnBookings,
 
     double? todayRevenue,
     double? monthRevenue,
@@ -413,17 +396,17 @@ class DashboardStatsModel {
       // BOOKINGS
       // --------------------------------------------------------
 
-      todayBookings:
-          todayBookings ??
-              this.todayBookings,
+      todayCreatedBookings:
+          todayCreatedBookings ??
+              this.todayCreatedBookings,
 
-      activeBookings:
-          activeBookings ??
-              this.activeBookings,
+      todayPickupBookings:
+          todayPickupBookings ??
+              this.todayPickupBookings,
 
-      upcomingBookings:
-          upcomingBookings ??
-              this.upcomingBookings,
+      todayReturnBookings:
+          todayReturnBookings ??
+              this.todayReturnBookings,
 
       // --------------------------------------------------------
       // REVENUE
@@ -515,4 +498,3 @@ class DashboardStatsModel {
     return DateTime.now();
   }
 }
-

@@ -5,7 +5,17 @@ import '../models/booking_model.dart';
 import 'package:car_rental/models/payment_model.dart';
 import '../models/user_model.dart';
 import '../models/vehicle_model.dart';
+class BookingPage {
+  final List<BookingModel> bookings;
+  final DocumentSnapshot? lastDocument;
+  final bool hasMore;
 
+  const BookingPage({
+    required this.bookings,
+    required this.lastDocument,
+    required this.hasMore,
+  });
+}
 class BookingService {
   BookingService._();
 
@@ -17,7 +27,7 @@ class BookingService {
 
   final FirebaseAuth _auth =
       FirebaseAuth.instance;
-
+static const int defaultPageSize = 50;
   // ============================================================
   // COLLECTIONS
   // ============================================================
@@ -2984,6 +2994,375 @@ Future<List<BookingModel>> getBookings({
         (doc) => BookingModel.fromFirestore(doc),
       )
       .toList();
+}
+Future<BookingPage> getBookingsPage({
+  BookingStatus? status,
+
+  // ----------------------------------------------------------
+  // RENTAL / EVENT DATE
+  // ----------------------------------------------------------
+  String? dateField,
+  DateTime? startDate,
+  DateTime? endDate,
+
+  // ----------------------------------------------------------
+  // CREATED DATE
+  // ----------------------------------------------------------
+  DateTime? createdStart,
+  DateTime? createdEnd,
+
+  // ----------------------------------------------------------
+  // VEHICLE
+  // ----------------------------------------------------------
+  String? vehicleId,
+
+  // ----------------------------------------------------------
+  // PAYMENT STATUS
+  // ----------------------------------------------------------
+  PaymentStatus? paymentStatus,
+
+  // ----------------------------------------------------------
+  // PAGINATION
+  // ----------------------------------------------------------
+  DocumentSnapshot? startAfter,
+
+  int limit = defaultPageSize,
+}) async {
+  // ==========================================================
+  // CURRENT USER
+  // ==========================================================
+
+  final user =
+      await _getCurrentUserModel();
+
+  final businessId =
+      user.businessId;
+
+  final branchCode =
+      user.branchCode;
+
+  if (businessId == null ||
+      businessId.isEmpty) {
+    throw Exception(
+      'No business is assigned to your account.',
+    );
+  }
+
+  if (branchCode == null ||
+      branchCode.isEmpty) {
+    throw Exception(
+      'No branch is assigned to your account.',
+    );
+  }
+
+  // ==========================================================
+  // BASE FIRESTORE QUERY
+  // ==========================================================
+
+  Query<Map<String, dynamic>> query =
+      _bookings
+          .where(
+            'businessId',
+            isEqualTo: businessId,
+          )
+          .where(
+            'branchCode',
+            isEqualTo: branchCode,
+          );
+
+  // ==========================================================
+  // DETERMINE FILTER TYPE
+  //
+  // Pickup / Return are EVENT filters.
+  //
+  // They should NOT restrict booking status.
+  //
+  // Example:
+  //
+  // Return + Today
+  //
+  // means:
+  // returnDateTime is today
+  //
+  // regardless of whether status is:
+  // active
+  // returnPending
+  // returning
+  // completed
+  // cancelled
+  // etc.
+  // ==========================================================
+
+  final bool isPickupFilter =
+      status ==
+              BookingStatus.pickupPending ||
+          status ==
+              BookingStatus.pickup;
+
+  final bool isReturnFilter =
+      status ==
+              BookingStatus.returnPending ||
+          status ==
+              BookingStatus.returning;
+
+  final bool isActiveFilter =
+      status ==
+          BookingStatus.active;
+
+  final bool isCompletedFilter =
+      status ==
+          BookingStatus.completed;
+
+  // ==========================================================
+  // STATUS FILTER
+  //
+  // Firebase-side filtering.
+  //
+  // Pickup / Return intentionally do NOT use status.
+  // All other status filters do.
+  // ==========================================================
+
+  if (status != null &&
+      !isPickupFilter &&
+      !isReturnFilter) {
+    query = query.where(
+      'status',
+      isEqualTo:
+          BookingModel.statusToString(
+        status,
+      ),
+    );
+  }
+
+  // ==========================================================
+  // DETERMINE EVENT DATE FIELD
+  // ==========================================================
+
+  String? firestoreDateField =
+      dateField;
+
+  if (isPickupFilter) {
+    firestoreDateField =
+        'pickupDateTime';
+  } else if (isReturnFilter) {
+    firestoreDateField =
+        'returnDateTime';
+  } else if (isActiveFilter) {
+    firestoreDateField =
+        'startedAt';
+  } else if (isCompletedFilter) {
+    firestoreDateField =
+        'completedAt';
+  }
+
+  // ==========================================================
+  // EVENT DATE FILTER
+  //
+  // Firebase filters BEFORE pagination.
+  //
+  // Example:
+  //
+  // Return + Today
+  //
+  // returnDateTime >= today 00:00
+  // returnDateTime < tomorrow 00:00
+  // ==========================================================
+
+  if (firestoreDateField != null &&
+      startDate != null) {
+    query = query.where(
+      firestoreDateField,
+      isGreaterThanOrEqualTo:
+          Timestamp.fromDate(
+        startDate,
+      ),
+    );
+  }
+
+  if (firestoreDateField != null &&
+      endDate != null) {
+    query = query.where(
+      firestoreDateField,
+      isLessThan:
+          Timestamp.fromDate(
+        endDate,
+      ),
+    );
+  }
+
+  // ==========================================================
+  // CREATED DATE FILTER
+  //
+  // Firebase-side.
+  //
+  // Can be combined with event date.
+  //
+  // Example:
+  //
+  // Return Today
+  // +
+  // Created Today
+  //
+  // means BOTH conditions must match.
+  // ==========================================================
+
+  if (createdStart != null) {
+    query = query.where(
+      'createdAt',
+      isGreaterThanOrEqualTo:
+          Timestamp.fromDate(
+        createdStart,
+      ),
+    );
+  }
+
+  if (createdEnd != null) {
+    query = query.where(
+      'createdAt',
+      isLessThan:
+          Timestamp.fromDate(
+        createdEnd,
+      ),
+    );
+  }
+
+  // ==========================================================
+  // VEHICLE FILTER
+  //
+  // Firebase-side.
+  //
+  // Only matching vehicle bookings are returned.
+  // ==========================================================
+
+  if (vehicleId != null &&
+      vehicleId.trim().isNotEmpty) {
+    query = query.where(
+      'vehicleId',
+      isEqualTo:
+          vehicleId.trim(),
+    );
+  }
+
+  // ==========================================================
+  // PAYMENT STATUS FILTER
+  //
+  // Firebase-side.
+  //
+  // Example:
+  //
+  // paymentStatus == partiallyPaid
+  // ==========================================================
+
+  if (paymentStatus != null) {
+    query = query.where(
+      'paymentStatus',
+      isEqualTo:
+          BookingModel.paymentStatusToString(
+        paymentStatus,
+      ),
+    );
+  }
+
+  // ==========================================================
+  // ORDER
+  //
+  // If an event/date filter exists:
+  //
+  // Pickup    -> pickupDateTime
+  // Return    -> returnDateTime
+  // Active    -> startedAt
+  // Completed -> completedAt
+  //
+  // Otherwise:
+  //
+  // All -> createdAt
+  //
+  // This ordering is also used for pagination.
+  // ==========================================================
+
+  final String orderField =
+      firestoreDateField ??
+          'createdAt';
+
+  query = query.orderBy(
+    orderField,
+    descending: true,
+  );
+
+  // ==========================================================
+  // PAGINATION CURSOR
+  //
+  // IMPORTANT:
+  // This happens AFTER all Firebase filters and ordering.
+  // ==========================================================
+
+  if (startAfter != null) {
+    query = query.startAfterDocument(
+      startAfter,
+    );
+  }
+
+  // ==========================================================
+  // LIMIT
+  //
+  // Firebase returns ONLY the first 50 matching documents.
+  // ==========================================================
+
+  query = query.limit(
+    limit,
+  );
+
+  // ==========================================================
+  // FIRESTORE READ
+  // ==========================================================
+
+  final snapshot =
+      await query.get();
+
+  // ==========================================================
+  // CONVERT DOCUMENTS
+  // ==========================================================
+
+  final bookings =
+      snapshot.docs
+          .map(
+            (doc) =>
+                BookingModel.fromFirestore(
+              doc,
+            ),
+          )
+          .toList();
+
+  // ==========================================================
+  // LAST DOCUMENT
+  // ==========================================================
+
+  final DocumentSnapshot?
+      lastDocument =
+      snapshot.docs.isNotEmpty
+          ? snapshot.docs.last
+          : null;
+
+  // ==========================================================
+  // HAS MORE
+  // ==========================================================
+
+  final bool hasMore =
+      snapshot.docs.length ==
+          limit;
+
+  // ==========================================================
+  // RETURN PAGE
+  // ==========================================================
+
+  return BookingPage(
+    bookings:
+        bookings,
+    lastDocument:
+        lastDocument,
+    hasMore:
+        hasMore,
+  );
 }
   Future<String>
       _generateBookingNumber({

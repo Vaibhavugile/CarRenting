@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:car_rental/models/booking_model.dart';
 import 'package:car_rental/services/booking_service.dart';
 import 'booking_details_screen.dart';
 import '../../app/theme.dart';
+import 'package:car_rental/models/vehicle_model.dart';
+import 'package:car_rental/services/vehicle_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 // Keep your existing theme constants.
 
 
@@ -26,7 +29,14 @@ enum _DateFilter {
   thisMonth,
   custom,
 }
-
+enum _CreatedDateFilter {
+  all,
+  today,
+  yesterday,
+  thisWeek,
+  thisMonth,
+  custom,
+}
 enum _PaymentFilter {
   all,
   unpaid,
@@ -44,20 +54,33 @@ class _BookingsScreenState
 
   List<BookingModel> _allBookings = [];
   List<BookingModel> _filteredBookings = [];
-
-  bool _isLoading = true;
+List<VehicleModel> _vehicles = [];
+bool _isLoadingVehicles = false;
+  bool _isLoading = false;
   String? _errorMessage;
+BookingStatus? _statusFilter;
 
-  BookingStatus? _statusFilter;
-  _DateFilter _dateFilter = _DateFilter.all;
-  _PaymentFilter _paymentFilter =
-      _PaymentFilter.all;
+_DateFilter _dateFilter = _DateFilter.all;
 
-  // Vehicle filter uses the real vehicleId.
-  // This keeps vehicles with the same name/registration distinct.
-  String? _vehicleFilterId;
+_PaymentFilter _paymentFilter =
+    _PaymentFilter.all;
 
-  DateTime? _customDate;
+_CreatedDateFilter _createdDateFilter =
+    _CreatedDateFilter.all;
+
+DateTime? _customDate;
+
+DateTime? _customCreatedDate;
+
+// Vehicle filter
+String? _vehicleFilterId;
+DocumentSnapshot? _lastBookingDocument;
+
+bool _hasMoreBookings = true;
+
+bool _isLoadingMoreBookings = false;
+
+static const int _bookingPageSize = 50;
 
   @override
   void initState() {
@@ -66,7 +89,7 @@ class _BookingsScreenState
     _searchController.addListener(
       _applyFilters,
     );
-
+_loadVehicles();
     _loadBookings();
   }
 
@@ -75,67 +98,930 @@ class _BookingsScreenState
     _searchController.dispose();
     super.dispose();
   }
+Future<void> _loadVehicles() async {
+  if (_isLoadingVehicles) {
+    return;
+  }
 
+  setState(() {
+    _isLoadingVehicles = true;
+  });
+
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      throw Exception('You must be logged in.');
+    }
+
+    final userSnapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    if (!userSnapshot.exists) {
+      throw Exception('User profile not found.');
+    }
+
+    final userData = userSnapshot.data();
+
+    final branchCode = userData?['branchCode']
+        ?.toString()
+        .trim()
+        .toUpperCase();
+
+    if (branchCode == null || branchCode.isEmpty) {
+      throw Exception('Branch setup is incomplete.');
+    }
+
+    final snapshot = await VehicleService.instance.getVehicles(
+      branchCode: branchCode,
+      limit: 30,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _vehicles = snapshot.docs
+          .map(
+            (doc) => VehicleModel.fromFirestore(doc),
+          )
+          .toList();
+
+      _isLoadingVehicles = false;
+    });
+  } catch (e) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingVehicles = false;
+    });
+
+    _showError(e.toString());
+  }
+}
   // ============================================================
   // LOAD BOOKINGS
   // ============================================================
-
-  Future<void> _loadBookings() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-    }
-
-    try {
-      // Load the branch's bookings without a status/date
-      // restriction. Filtering is intentionally done locally
-      // so pickup AND return dates can both participate.
-      final bookings =
-          await _bookingService.getBookings();
-
-      if (!mounted) return;
-
-      setState(() {
-        _allBookings = bookings;
-        _isLoading = false;
-      });
-
-      _applyFilters();
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _errorMessage = _cleanError(
-          e.toString(),
-        );
-      });
-    }
+DateTime _startOfDay(DateTime date) {
+  return DateTime(
+    date.year,
+    date.month,
+    date.day,
+  );
+}
+void _showError(String message) {
+  if (!mounted) {
+    return;
   }
+
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message.replaceFirst(
+          'Exception: ',
+          '',
+        ),
+      ),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(
+        seconds: 3,
+      ),
+    ),
+  );
+}
+DateTime _endOfDay(DateTime date) {
+  return DateTime(
+    date.year,
+    date.month,
+    date.day + 1,
+  );
+}
+Map<String, DateTime>? _selectedDateRange() {
+  final now = DateTime.now();
+
+  switch (_dateFilter) {
+    case _DateFilter.all:
+      return null;
+
+    case _DateFilter.today:
+      return {
+        'start': _startOfDay(now),
+        'end': _endOfDay(now),
+      };
+
+    case _DateFilter.tomorrow:
+      final tomorrow =
+          now.add(const Duration(days: 1));
+
+      return {
+        'start': _startOfDay(tomorrow),
+        'end': _endOfDay(tomorrow),
+      };
+
+    case _DateFilter.thisWeek:
+      final start =
+          _startOfWeek(now);
+
+      return {
+        'start': start,
+        'end': start.add(
+          const Duration(days: 7),
+        ),
+      };
+
+    case _DateFilter.thisMonth:
+      final start = DateTime(
+        now.year,
+        now.month,
+        1,
+      );
+
+      final end = DateTime(
+        now.year,
+        now.month + 1,
+        1,
+      );
+
+      return {
+        'start': start,
+        'end': end,
+      };
+
+    case _DateFilter.custom:
+      if (_customDate == null) {
+        return null;
+      }
+
+      return {
+        'start':
+            _startOfDay(_customDate!),
+        'end':
+            _endOfDay(_customDate!),
+      };
+  }
+}
+Map<String, DateTime>? _selectedCreatedDateRange() {
+  final now = DateTime.now();
+
+  switch (_createdDateFilter) {
+    case _CreatedDateFilter.all:
+      return null;
+
+    case _CreatedDateFilter.today:
+      return {
+        'start': _startOfDay(now),
+        'end': _endOfDay(now),
+      };
+
+    case _CreatedDateFilter.yesterday:
+      final yesterday =
+          now.subtract(
+        const Duration(days: 1),
+      );
+
+      return {
+        'start':
+            _startOfDay(yesterday),
+        'end':
+            _endOfDay(yesterday),
+      };
+
+    case _CreatedDateFilter.thisWeek:
+      final start =
+          _startOfWeek(now);
+
+      return {
+        'start': start,
+        'end': start.add(
+          const Duration(days: 7),
+        ),
+      };
+
+    case _CreatedDateFilter.thisMonth:
+      final start = DateTime(
+        now.year,
+        now.month,
+        1,
+      );
+
+      final end = DateTime(
+        now.year,
+        now.month + 1,
+        1,
+      );
+
+      return {
+        'start': start,
+        'end': end,
+      };
+
+    case _CreatedDateFilter.custom:
+      if (_customCreatedDate == null) {
+        return null;
+      }
+
+      return {
+        'start':
+            _startOfDay(
+          _customCreatedDate!,
+        ),
+        'end':
+            _endOfDay(
+          _customCreatedDate!,
+        ),
+      };
+  }
+}
+Map<String, dynamic> _bookingQueryFilters() {
+  final range = _selectedDateRange();
+
+  String? dateField;
+  BookingStatus? queryStatus;
+
+  // ----------------------------------------------------------
+  // PICKUP
+  // ----------------------------------------------------------
+
+  if (_statusFilter == BookingStatus.pickupPending ||
+      _statusFilter == BookingStatus.pickup) {
+    dateField = 'pickupDateTime';
+
+    // Pickup is an event filter.
+    // Do NOT filter status.
+    queryStatus = null;
+  }
+
+  // ----------------------------------------------------------
+  // RETURN
+  // ----------------------------------------------------------
+
+  else if (_statusFilter == BookingStatus.returnPending ||
+      _statusFilter == BookingStatus.returning) {
+    dateField = 'returnDateTime';
+
+    // Return is an event filter.
+    // Do NOT filter status.
+    queryStatus = null;
+  }
+
+  // ----------------------------------------------------------
+  // ACTIVE
+  // ----------------------------------------------------------
+
+  else if (_statusFilter == BookingStatus.active) {
+    dateField = 'startedAt';
+    queryStatus = BookingStatus.active;
+  }
+
+  // ----------------------------------------------------------
+  // COMPLETED
+  // ----------------------------------------------------------
+
+  else if (_statusFilter == BookingStatus.completed) {
+    dateField = 'completedAt';
+    queryStatus = BookingStatus.completed;
+  }
+
+  // ----------------------------------------------------------
+  // UPCOMING
+  // ----------------------------------------------------------
+
+  else if (_statusFilter == BookingStatus.booking) {
+    dateField = 'pickupDateTime';
+    queryStatus = BookingStatus.booking;
+  }
+
+  // ----------------------------------------------------------
+  // CREATED DATE
+  // ----------------------------------------------------------
+
+  DateTime? createdStart;
+  DateTime? createdEnd;
+
+  if (_createdDateFilter != _CreatedDateFilter.all) {
+    final createdRange = _selectedCreatedDateRange();
+
+    createdStart = createdRange?['start'];
+    createdEnd = createdRange?['end'];
+  }
+
+  // ----------------------------------------------------------
+  // RETURN FIREBASE FILTERS
+  // ----------------------------------------------------------
+
+  return {
+    'status': queryStatus,
+
+    'dateField': dateField,
+
+    'startDate': range?['start'],
+
+    'endDate': range?['end'],
+
+    'createdStart': createdStart,
+
+    'createdEnd': createdEnd,
+
+    // NEW: Firebase vehicle filter
+    'vehicleId': _vehicleFilterId,
+
+    // NEW: Firebase payment filter
+    'paymentStatus': _paymentFilter ==
+            _PaymentFilter.all
+        ? null
+        : _paymentFilter == _PaymentFilter.unpaid
+            ? PaymentStatus.unpaid
+            : _paymentFilter == _PaymentFilter.partiallyPaid
+                ? PaymentStatus.partiallyPaid
+                : PaymentStatus.paid,
+  };
+}
+Future<void> _loadBookings({
+  bool refresh = true,
+}) async {
+  if (_isLoading) {
+    return;
+  }
+
+  setState(() {
+    _isLoading = true;
+  });
+
+  try {
+    // ----------------------------------------------------------
+    // RESET PAGINATION
+    // ----------------------------------------------------------
+
+    if (refresh) {
+      _lastBookingDocument = null;
+      _hasMoreBookings = true;
+
+      _allBookings.clear();
+      _filteredBookings.clear();
+    }
+
+    // ----------------------------------------------------------
+    // GET CURRENT QUERY FILTERS
+    // ----------------------------------------------------------
+
+    final filters = _bookingQueryFilters();
+
+    // ----------------------------------------------------------
+    // STATUS
+    // ----------------------------------------------------------
+
+    final BookingStatus? queryStatus =
+        filters['status'] as BookingStatus?;
+
+    // ----------------------------------------------------------
+    // EVENT DATE FIELD
+    //
+    // pickupDateTime
+    // returnDateTime
+    // startedAt
+    // completedAt
+    // ----------------------------------------------------------
+
+    final String? dateField =
+        filters['dateField'] as String?;
+
+    // ----------------------------------------------------------
+    // EVENT DATE RANGE
+    // ----------------------------------------------------------
+
+    final DateTime? startDate =
+        filters['startDate'] as DateTime?;
+
+    final DateTime? endDate =
+        filters['endDate'] as DateTime?;
+
+    // ----------------------------------------------------------
+    // CREATED DATE RANGE
+    // ----------------------------------------------------------
+
+    final DateTime? createdStart =
+        filters['createdStart'] as DateTime?;
+
+    final DateTime? createdEnd =
+        filters['createdEnd'] as DateTime?;
+
+    // ----------------------------------------------------------
+    // VEHICLE FILTER
+    // ----------------------------------------------------------
+
+    final String? vehicleId =
+        filters['vehicleId'] as String?;
+
+    // ----------------------------------------------------------
+    // PAYMENT FILTER
+    // ----------------------------------------------------------
+
+    final PaymentStatus? paymentStatus =
+        filters['paymentStatus'] as PaymentStatus?;
+
+    // ----------------------------------------------------------
+    // FETCH ONE FILTERED PAGE FROM FIRESTORE
+    //
+    // All database filters are now passed to the service.
+    // ----------------------------------------------------------
+
+    final page =
+        await _bookingService.getBookingsPage(
+      // Status
+      status: queryStatus,
+
+      // Rental/event date
+      dateField: dateField,
+      startDate: startDate,
+      endDate: endDate,
+
+      // Created date
+      createdStart: createdStart,
+      createdEnd: createdEnd,
+
+      // Vehicle
+      vehicleId: vehicleId,
+
+      // Payment
+      paymentStatus: paymentStatus,
+
+      // Pagination
+      startAfter: _lastBookingDocument,
+      limit: _bookingPageSize,
+    );
+
+    // ----------------------------------------------------------
+    // WIDGET DISPOSED
+    // ----------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // SAVE PAGE
+    // ----------------------------------------------------------
+
+    setState(() {
+      if (refresh) {
+        _allBookings =
+            List<BookingModel>.from(
+          page.bookings,
+        );
+      } else {
+        _allBookings.addAll(
+          page.bookings,
+        );
+      }
+
+      // --------------------------------------------------------
+      // UPDATE CURSOR
+      // --------------------------------------------------------
+
+      _lastBookingDocument =
+          page.lastDocument;
+
+      // --------------------------------------------------------
+      // UPDATE PAGINATION STATE
+      // --------------------------------------------------------
+
+      _hasMoreBookings =
+          page.hasMore;
+
+      _isLoading = false;
+    });
+
+    // ----------------------------------------------------------
+    // LOCAL FILTER
+    //
+    // IMPORTANT:
+    //
+    // Firebase has already handled:
+    //   - status
+    //   - pickup/return/event date
+    //   - created date
+    //   - vehicle
+    //   - payment
+    //
+    // _applyFilters() should therefore ONLY handle things that
+    // cannot/should not be queried directly in Firestore,
+    // currently the search text.
+    // ----------------------------------------------------------
+
+    _applyFilters();
+  } catch (e) {
+    // ----------------------------------------------------------
+    // ERROR
+    // ----------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    _showError(
+      e.toString(),
+    );
+  }
+}
+Future<void> _loadMoreBookings() async {
+  // ----------------------------------------------------------
+  // PREVENT DUPLICATE / INVALID PAGINATION REQUESTS
+  // ----------------------------------------------------------
+
+  if (_isLoadingMoreBookings ||
+      !_hasMoreBookings ||
+      _lastBookingDocument == null) {
+    return;
+  }
+
+  setState(() {
+    _isLoadingMoreBookings = true;
+  });
+
+  try {
+    // ----------------------------------------------------------
+    // GET THE EXACT SAME FILTERS USED FOR PAGE 1
+    // ----------------------------------------------------------
+
+    final filters =
+        _bookingQueryFilters();
+
+    // ----------------------------------------------------------
+    // STATUS
+    // ----------------------------------------------------------
+
+    final BookingStatus? queryStatus =
+        filters['status'] as BookingStatus?;
+
+    // ----------------------------------------------------------
+    // EVENT DATE FIELD
+    // ----------------------------------------------------------
+
+    final String? dateField =
+        filters['dateField'] as String?;
+
+    // ----------------------------------------------------------
+    // EVENT DATE RANGE
+    // ----------------------------------------------------------
+
+    final DateTime? startDate =
+        filters['startDate'] as DateTime?;
+
+    final DateTime? endDate =
+        filters['endDate'] as DateTime?;
+
+    // ----------------------------------------------------------
+    // CREATED DATE RANGE
+    // ----------------------------------------------------------
+
+    final DateTime? createdStart =
+        filters['createdStart'] as DateTime?;
+
+    final DateTime? createdEnd =
+        filters['createdEnd'] as DateTime?;
+
+    // ----------------------------------------------------------
+    // VEHICLE FILTER
+    //
+    // IMPORTANT:
+    // Must be exactly the same vehicle filter used by page 1.
+    // ----------------------------------------------------------
+
+    final String? vehicleId =
+        filters['vehicleId'] as String?;
+
+    // ----------------------------------------------------------
+    // PAYMENT FILTER
+    //
+    // IMPORTANT:
+    // Must be exactly the same payment filter used by page 1.
+    // ----------------------------------------------------------
+
+    final PaymentStatus? paymentStatus =
+        filters['paymentStatus'] as PaymentStatus?;
+
+    // ----------------------------------------------------------
+    // LOAD NEXT 50 MATCHING BOOKINGS
+    //
+    // Firebase applies ALL filters first.
+    // Then it uses the previous page's last document as cursor.
+    // Then it returns the next 50.
+    // ----------------------------------------------------------
+
+    final page =
+        await _bookingService.getBookingsPage(
+      // Status
+      status: queryStatus,
+
+      // Event date
+      dateField: dateField,
+      startDate: startDate,
+      endDate: endDate,
+
+      // Created date
+      createdStart: createdStart,
+      createdEnd: createdEnd,
+
+      // Vehicle
+      vehicleId: vehicleId,
+
+      // Payment
+      paymentStatus: paymentStatus,
+
+      // Pagination cursor
+      startAfter:
+          _lastBookingDocument,
+
+      // Page size
+      limit:
+          _bookingPageSize,
+    );
+
+    // ----------------------------------------------------------
+    // WIDGET DISPOSED
+    // ----------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // APPEND NEXT PAGE
+    // ----------------------------------------------------------
+
+    setState(() {
+      _allBookings.addAll(
+        page.bookings,
+      );
+
+      // --------------------------------------------------------
+      // UPDATE CURSOR
+      // --------------------------------------------------------
+
+      _lastBookingDocument =
+          page.lastDocument;
+
+      // --------------------------------------------------------
+      // UPDATE HAS MORE
+      // --------------------------------------------------------
+
+      _hasMoreBookings =
+          page.hasMore;
+
+      // --------------------------------------------------------
+      // FINISH LOADING
+      // --------------------------------------------------------
+
+      _isLoadingMoreBookings = false;
+    });
+
+    // ----------------------------------------------------------
+    // APPLY ONLY REMAINING LOCAL LOGIC
+    //
+    // Firebase has already filtered:
+    //   - status
+    //   - pickup / return / event date
+    //   - created date
+    //   - vehicle
+    //   - payment status
+    //
+    // _applyFilters() should now only handle local search.
+    // ----------------------------------------------------------
+
+    _applyFilters();
+  } catch (e) {
+    // ----------------------------------------------------------
+    // ERROR
+    // ----------------------------------------------------------
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingMoreBookings = false;
+    });
+
+    _showError(
+      e.toString(),
+    );
+  }
+}
+  Future<void> _showCreatedDateFilter() async {
+  final value =
+      await showModalBottomSheet<_CreatedDateFilter>(
+    context: context,
+    backgroundColor: AppColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
+      ),
+    ),
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(
+            AppSpacing.xl,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _sheetHandle(),
+
+              const SizedBox(
+                height: AppSpacing.lg,
+              ),
+
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Created Date',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+
+              const SizedBox(
+                height: AppSpacing.md,
+              ),
+
+              ...[
+                _CreatedDateFilter.all,
+                _CreatedDateFilter.today,
+                _CreatedDateFilter.yesterday,
+                _CreatedDateFilter.thisWeek,
+                _CreatedDateFilter.thisMonth,
+                _CreatedDateFilter.custom,
+              ].map(
+                (item) {
+                  return ListTile(
+                    contentPadding:
+                        EdgeInsets.zero,
+                    title: Text(
+                      _createdDateLabel(item),
+                    ),
+                    trailing:
+                        _createdDateFilter == item
+                            ? const Icon(
+                                Icons
+                                    .check_circle_rounded,
+                                color:
+                                    AppColors.primary,
+                              )
+                            : null,
+                    onTap: () {
+                      Navigator.pop(
+                        context,
+                        item,
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  if (value == null) {
+    return;
+  }
+
+  if (value ==
+      _CreatedDateFilter.custom) {
+    await _pickCustomCreatedDate();
+    return;
+  }
+
+  setState(() {
+    _createdDateFilter = value;
+    _customCreatedDate = null;
+  });
+
+  _loadBookings(refresh: true);
+}
+String _createdDateLabel(
+  _CreatedDateFilter filter,
+) {
+  switch (filter) {
+    case _CreatedDateFilter.all:
+      return 'All Created';
+
+    case _CreatedDateFilter.today:
+      return 'Created Today';
+
+    case _CreatedDateFilter.yesterday:
+      return 'Created Yesterday';
+
+    case _CreatedDateFilter.thisWeek:
+      return 'Created This Week';
+
+    case _CreatedDateFilter.thisMonth:
+      return 'Created This Month';
+
+    case _CreatedDateFilter.custom:
+      return _customCreatedDate == null
+          ? 'Custom Created Date'
+          : DateFormat(
+              'dd MMM yyyy',
+            ).format(
+              _customCreatedDate!,
+            );
+  }
+}
+Future<void> _pickCustomCreatedDate() async {
+  final picked = await showDatePicker(
+    context: context,
+    initialDate:
+        _customCreatedDate ??
+            DateTime.now(),
+    firstDate: DateTime(
+      DateTime.now().year - 2,
+    ),
+    lastDate: DateTime(
+      DateTime.now().year + 5,
+    ),
+  );
+
+  if (picked == null) {
+    return;
+  }
+
+  setState(() {
+    _createdDateFilter =
+        _CreatedDateFilter.custom;
+
+    _customCreatedDate = picked;
+  });
+
+  _loadBookings(refresh: true);
+}
 
   // ============================================================
   // FILTERING
   // ============================================================
+void _applyFilters() {
+  if (!mounted) {
+    return;
+  }
 
-  void _applyFilters() {
-    if (!mounted) return;
+  final query =
+      _searchController.text
+          .trim()
+          .toLowerCase();
 
-    final query =
-        _searchController.text
-            .trim()
-            .toLowerCase();
+  // ----------------------------------------------------------
+  // NO SEARCH
+  //
+  // Firebase has already applied:
+  // - status
+  // - pickup / return
+  // - event date
+  // - created date
+  // - vehicle
+  // - payment status
+  //
+  // Therefore simply display the Firebase results.
+  // ----------------------------------------------------------
 
-    final result =
-        _allBookings.where((booking) {
-      // --------------------------------------------------------
-      // SEARCH
-      // --------------------------------------------------------
+  if (query.isEmpty) {
+    setState(() {
+      _filteredBookings =
+          List<BookingModel>.from(
+        _allBookings,
+      );
+    });
 
-      final matchesSearch =
-          query.isEmpty ||
-          booking.bookingNumber
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // SEARCH
+  //
+  // Search is still local for now.
+  //
+  // This searches only the currently loaded Firebase pages.
+  // ----------------------------------------------------------
+
+  final result =
+      _allBookings.where(
+    (booking) {
+      return booking.bookingNumber
               .toLowerCase()
               .contains(query) ||
           booking.customerName
@@ -150,68 +1036,17 @@ class _BookingsScreenState
           booking.vehicleRegistrationNumber
               .toLowerCase()
               .contains(query);
+    },
+  ).toList();
 
-      if (!matchesSearch) {
-        return false;
-      }
+  // ----------------------------------------------------------
+  // UPDATE DISPLAY LIST
+  // ----------------------------------------------------------
 
-      // --------------------------------------------------------
-      // VEHICLE
-      // --------------------------------------------------------
-
-      if (_vehicleFilterId != null &&
-          booking.vehicleId !=
-              _vehicleFilterId) {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // STATUS
-      // --------------------------------------------------------
-
-      if (_statusFilter != null &&
-          booking.status !=
-              _statusFilter) {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // PAYMENT
-      // --------------------------------------------------------
-
-      if (!_matchesPayment(
-        booking,
-      )) {
-        return false;
-      }
-
-      // --------------------------------------------------------
-      // DATE
-      //
-      // A booking matches if EITHER:
-      // pickup date OR return date matches.
-      // --------------------------------------------------------
-
-      if (!_matchesDate(
-        booking,
-      )) {
-        return false;
-      }
-
-      return true;
-    }).toList();
-
-    result.sort(
-      (a, b) =>
-          a.pickupDateTime.compareTo(
-        b.pickupDateTime,
-      ),
-    );
-
-    setState(() {
-      _filteredBookings = result;
-    });
-  }
+  setState(() {
+    _filteredBookings = result;
+  });
+}
 
   bool _matchesPayment(
     BookingModel booking,
@@ -233,115 +1068,273 @@ class _BookingsScreenState
             PaymentStatus.paid;
     }
   }
-
-  bool _matchesDate(
-    BookingModel booking,
-  ) {
-    if (_dateFilter ==
-        _DateFilter.all) {
-      return true;
-    }
-
-    final pickup =
-        booking.pickupDateTime;
-    final returned =
-        booking.returnDateTime;
-
-    switch (_dateFilter) {
-      case _DateFilter.all:
-        return true;
-
-      case _DateFilter.today:
-        return _sameDay(
-              pickup,
-              DateTime.now(),
-            ) ||
-            _sameDay(
-              returned,
-              DateTime.now(),
-            );
-
-      case _DateFilter.tomorrow:
-        final tomorrow =
-            DateTime.now().add(
-          const Duration(
-            days: 1,
-          ),
-        );
-
-        return _sameDay(
-              pickup,
-              tomorrow,
-            ) ||
-            _sameDay(
-              returned,
-              tomorrow,
-            );
-
-      case _DateFilter.thisWeek:
-        final now =
-            DateTime.now();
-
-        final start =
-            _startOfWeek(
-          now,
-        );
-
-        final end =
-            start.add(
-          const Duration(
-            days: 7,
-          ),
-        );
-
-        return _dateOverlapsRange(
-              pickup,
-              returned,
-              start,
-              end,
-            );
-
-      case _DateFilter.thisMonth:
-        final now =
-            DateTime.now();
-
-        final start =
-            DateTime(
-          now.year,
-          now.month,
-          1,
-        );
-
-        final end =
-            DateTime(
-          now.year,
-          now.month + 1,
-          1,
-        );
-
-        return _dateOverlapsRange(
-          pickup,
-          returned,
-          start,
-          end,
-        );
-
-      case _DateFilter.custom:
-        if (_customDate == null) {
-          return true;
-        }
-
-        return _sameDay(
-              pickup,
-              _customDate!,
-            ) ||
-            _sameDay(
-              returned,
-              _customDate!,
-            );
-    }
+bool _matchesDate(
+  BookingModel booking,
+) {
+  if (_dateFilter == _DateFilter.all) {
+    return true;
   }
 
+  // --------------------------------------------------------
+  // PICKUP
+  // Ignore current booking status.
+  // --------------------------------------------------------
+
+  if (_statusFilter ==
+          BookingStatus.pickupPending ||
+      _statusFilter ==
+          BookingStatus.pickup) {
+    return _matchesSingleDate(
+      booking.pickupDateTime,
+    );
+  }
+
+  // --------------------------------------------------------
+  // RETURN
+  // Ignore current booking status.
+  // --------------------------------------------------------
+
+  if (_statusFilter ==
+          BookingStatus.returnPending ||
+      _statusFilter ==
+          BookingStatus.returning) {
+    return _matchesSingleDate(
+      booking.returnDateTime,
+    );
+  }
+
+  // --------------------------------------------------------
+  // ACTIVE
+  // --------------------------------------------------------
+
+  if (_statusFilter ==
+      BookingStatus.active) {
+    if (booking.startedAt == null) {
+      return false;
+    }
+
+    return _matchesSingleDate(
+      booking.startedAt!,
+    );
+  }
+
+  // --------------------------------------------------------
+  // COMPLETED
+  // --------------------------------------------------------
+
+  if (_statusFilter ==
+      BookingStatus.completed) {
+    if (booking.completedAt == null) {
+      return false;
+    }
+
+    return _matchesSingleDate(
+      booking.completedAt!,
+    );
+  }
+
+  // --------------------------------------------------------
+  // UPCOMING
+  // --------------------------------------------------------
+
+  if (_statusFilter ==
+      BookingStatus.booking) {
+    return _matchesSingleDate(
+      booking.pickupDateTime,
+    );
+  }
+
+  // --------------------------------------------------------
+  // ALL
+  // --------------------------------------------------------
+
+  if (_statusFilter == null) {
+    return _matchesSingleDate(
+          booking.pickupDateTime,
+        ) ||
+        _matchesSingleDate(
+          booking.returnDateTime,
+        );
+  }
+
+  return true;
+}
+bool _matchesDateForStatus(
+  BookingModel booking,
+  BookingStatus status,
+) {
+  DateTime? date;
+
+  switch (status) {
+    case BookingStatus.booking:
+    case BookingStatus.pickupPending:
+    case BookingStatus.pickup:
+      date = booking.pickupDateTime;
+      break;
+
+    case BookingStatus.active:
+      date = booking.startedAt;
+      break;
+
+    case BookingStatus.returnPending:
+    case BookingStatus.returning:
+      date = booking.returnDateTime;
+      break;
+
+    case BookingStatus.completed:
+      date = booking.completedAt;
+      break;
+
+    case BookingStatus.cancelled:
+    case BookingStatus.noShow:
+      date = booking.updatedAt;
+      break;
+  }
+
+  if (date == null) {
+    return false;
+  }
+
+  return _matchesSingleDate(date);
+}
+bool _matchesSingleDate(
+  DateTime date,
+) {
+  switch (_dateFilter) {
+    case _DateFilter.all:
+      return true;
+
+    case _DateFilter.today:
+      return _sameDay(
+        date,
+        DateTime.now(),
+      );
+
+    case _DateFilter.tomorrow:
+      return _sameDay(
+        date,
+        DateTime.now().add(
+          const Duration(days: 1),
+        ),
+      );
+
+    case _DateFilter.thisWeek:
+      final now = DateTime.now();
+
+      final start =
+          _startOfWeek(now);
+
+      final end =
+          start.add(
+        const Duration(days: 7),
+      );
+
+      return !date.isBefore(start) &&
+          date.isBefore(end);
+
+    case _DateFilter.thisMonth:
+      final now =
+          DateTime.now();
+
+      final start = DateTime(
+        now.year,
+        now.month,
+        1,
+      );
+
+      final end = DateTime(
+        now.year,
+        now.month + 1,
+        1,
+      );
+
+      return !date.isBefore(start) &&
+          date.isBefore(end);
+
+    case _DateFilter.custom:
+      if (_customDate == null) {
+        return true;
+      }
+
+      return _sameDay(
+        date,
+        _customDate!,
+      );
+  }
+}
+bool _matchesCreatedDate(
+  BookingModel booking,
+) {
+  if (_createdDateFilter ==
+      _CreatedDateFilter.all) {
+    return true;
+  }
+
+  final created =
+      booking.createdAt;
+
+  switch (_createdDateFilter) {
+    case _CreatedDateFilter.all:
+      return true;
+
+    case _CreatedDateFilter.today:
+      return _sameDay(
+        created,
+        DateTime.now(),
+      );
+
+    case _CreatedDateFilter.yesterday:
+      return _sameDay(
+        created,
+        DateTime.now().subtract(
+          const Duration(days: 1),
+        ),
+      );
+
+    case _CreatedDateFilter.thisWeek:
+      final now = DateTime.now();
+
+      final start =
+          _startOfWeek(now);
+
+      final end =
+          start.add(
+        const Duration(days: 7),
+      );
+
+      return !created.isBefore(start) &&
+          created.isBefore(end);
+
+    case _CreatedDateFilter.thisMonth:
+      final now =
+          DateTime.now();
+
+      final start = DateTime(
+        now.year,
+        now.month,
+        1,
+      );
+
+      final end = DateTime(
+        now.year,
+        now.month + 1,
+        1,
+      );
+
+      return !created.isBefore(start) &&
+          created.isBefore(end);
+
+    case _CreatedDateFilter.custom:
+      if (_customCreatedDate == null) {
+        return true;
+      }
+
+      return _sameDay(
+        created,
+        _customCreatedDate!,
+      );
+  }
+}
   bool _dateOverlapsRange(
     DateTime pickup,
     DateTime returned,
@@ -410,7 +1403,7 @@ class _BookingsScreenState
       _customDate = picked;
     });
 
-    _applyFilters();
+   _loadBookings(refresh: true);
   }
 
   // ============================================================
@@ -420,17 +1413,26 @@ class _BookingsScreenState
   void _clearFilters() {
     _searchController.clear();
 
-    setState(() {
-      _statusFilter = null;
-      _vehicleFilterId = null;
-      _dateFilter =
-          _DateFilter.all;
-      _paymentFilter =
-          _PaymentFilter.all;
-      _customDate = null;
-    });
+   setState(() {
+  _statusFilter = null;
 
-    _applyFilters();
+  _vehicleFilterId = null;
+
+  _dateFilter =
+      _DateFilter.all;
+
+  _customDate = null;
+
+  _createdDateFilter =
+      _CreatedDateFilter.all;
+
+  _customCreatedDate = null;
+
+  _paymentFilter =
+      _PaymentFilter.all;
+});
+
+    _loadBookings(refresh: true);
   }
 
   // ============================================================
@@ -793,31 +1795,77 @@ class _BookingsScreenState
 
   Widget _buildBody() {
     if (_isLoading) {
-      return ListView(
-        physics:
-            const AlwaysScrollableScrollPhysics(),
-        padding:
-            const EdgeInsets.all(
-          AppSpacing.xl,
+      return NotificationListener<ScrollNotification>(
+  onNotification: (notification) {
+    if (notification is ScrollUpdateNotification ||
+        notification is OverscrollNotification) {
+      final metrics = notification.metrics;
+
+      // Start loading the next 50 when
+      // user is close to the bottom.
+      if (metrics.extentAfter < 500) {
+        _loadMoreBookings();
+      }
+    }
+
+    return false;
+  },
+
+  child: ListView(
+    physics:
+        const AlwaysScrollableScrollPhysics(),
+
+    padding:
+        const EdgeInsets.fromLTRB(
+      AppSpacing.xl,
+      AppSpacing.md,
+      AppSpacing.xl,
+      120,
+    ),
+
+    children: [
+      _buildSearch(),
+
+      const SizedBox(
+        height: AppSpacing.md,
+      ),
+
+      _buildStatusFilters(),
+
+      const SizedBox(
+        height: AppSpacing.md,
+      ),
+
+      _buildFilterRow(),
+
+      const SizedBox(
+        height: AppSpacing.lg,
+      ),
+
+      _buildSummary(),
+
+      const SizedBox(
+        height: AppSpacing.xl,
+      ),
+
+      _buildBookingList(),
+
+      // ----------------------------------------------------------
+      // LOAD MORE INDICATOR
+      // ----------------------------------------------------------
+
+      if (_isLoadingMoreBookings)
+        const Padding(
+          padding: EdgeInsets.symmetric(
+            vertical: 24,
+          ),
+          child: Center(
+            child: CircularProgressIndicator(),
+          ),
         ),
-        children: [
-          _buildLoadingHeader(),
-          const SizedBox(
-            height: AppSpacing.xl,
-          ),
-          ...List.generate(
-            4,
-            (_) => Padding(
-              padding:
-                  const EdgeInsets.only(
-                bottom: AppSpacing.md,
-              ),
-              child:
-                  _buildLoadingCard(),
-            ),
-          ),
-        ],
-      );
+    ],
+  ),
+);
     }
 
     if (_errorMessage != null) {
@@ -998,13 +2046,26 @@ class _BookingsScreenState
                 item.label,
             selected:
                 selected,
-            onTap: () {
-              setState(() {
-                _statusFilter =
-                    item.status;
-              });
-              _applyFilters();
-            },
+           onTap: () {
+  setState(() {
+    _statusFilter = item.status;
+
+    // Pickup and Return always default to TODAY
+    if (item.status == BookingStatus.pickupPending ||
+        item.status == BookingStatus.pickup ||
+        item.status == BookingStatus.returnPending ||
+        item.status == BookingStatus.returning) {
+      _dateFilter = _DateFilter.today;
+      _customDate = null;
+    } else {
+      // All / other statuses don't force Today
+      _dateFilter = _DateFilter.all;
+      _customDate = null;
+    }
+  });
+
+  _loadBookings(refresh: true);
+},
           );
         },
       ),
@@ -1071,61 +2132,69 @@ class _BookingsScreenState
   // FILTER ROW
   // ============================================================
 
-  Widget _buildFilterRow() {
-    return Row(
-      children: [
-        Expanded(
-          child:
-              _dropdownButton(
-            icon:
-                Icons.directions_car_rounded,
-            label:
-                _vehicleFilterLabel(),
-            onTap:
-                _showVehicleFilter,
+ Widget _buildFilterRow() {
+  return Row(
+    children: [
+      Expanded(
+        child: _dropdownButton(
+          icon: Icons.directions_car_rounded,
+          label: _vehicleFilterLabel(),
+          onTap: _showVehicleFilter,
+        ),
+      ),
+
+      const SizedBox(
+        width: AppSpacing.sm,
+      ),
+
+      Expanded(
+        child: _dropdownButton(
+          icon: Icons.calendar_month_rounded,
+          label: _dateLabel(
+            _dateFilter,
           ),
+          onTap: _showDateFilter,
         ),
-        const SizedBox(
-          width: AppSpacing.sm,
-        ),
-        Expanded(
-          child:
-              _dropdownButton(
-            icon:
-                Icons.calendar_month_rounded,
-            label:
-                _dateLabel(
-              _dateFilter,
-            ),
-            onTap:
-                _showDateFilter,
+      ),
+
+      const SizedBox(
+        width: AppSpacing.sm,
+      ),
+
+      Expanded(
+        child: _dropdownButton(
+          icon: Icons.history_rounded,
+          label: _createdDateLabel(
+            _createdDateFilter,
           ),
+          onTap: _showCreatedDateFilter,
         ),
-        const SizedBox(
-          width: AppSpacing.sm,
+      ),
+
+      const SizedBox(
+        width: AppSpacing.sm,
+      ),
+
+      Expanded(
+        child: _dropdownButton(
+          icon: Icons.payments_rounded,
+          label:
+              _paymentFilter ==
+                      _PaymentFilter.all
+                  ? 'All Payments'
+                  : _paymentFilter ==
+                          _PaymentFilter.paid
+                      ? 'Paid'
+                      : _paymentFilter ==
+                              _PaymentFilter.partiallyPaid
+                          ? 'Partially Paid'
+                          : 'Unpaid',
+          onTap: _showPaymentFilter,
         ),
-        Expanded(
-          child:
-              _dropdownButton(
-            icon:
-                Icons.payments_rounded,
-            label: _paymentFilter ==
-                    _PaymentFilter.all
-                ? 'All Payments'
-                : _paymentFilter ==
-                        _PaymentFilter.paid
-                    ? 'Paid'
-                    : _paymentFilter ==
-                            _PaymentFilter.partiallyPaid
-                        ? 'Partially Paid'
-                        : 'Unpaid',
-            onTap:
-                _showPaymentFilter,
-          ),
-        ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
 
   // ============================================================
   // VEHICLE FILTER
@@ -1149,72 +2218,65 @@ class _BookingsScreenState
   }
 
   List<_VehicleFilterItem> _vehicleFilterOptions() {
-    final unique =
-        <String, _VehicleFilterItem>{};
+  final options = _vehicles.map((vehicle) {
+    final name = [
+      vehicle.make,
+      vehicle.model,
+      vehicle.variant,
+    ]
+        .where(
+          (value) =>
+              value.trim().isNotEmpty,
+        )
+        .join(' ');
 
-    for (final booking in _allBookings) {
-      final id =
-          booking.vehicleId.trim();
+    final registration =
+        vehicle.registrationNumber.trim();
 
-      if (id.isEmpty) {
-        continue;
-      }
+    final label =
+        name.isEmpty
+            ? registration.isEmpty
+                ? 'Vehicle'
+                : registration
+            : registration.isEmpty
+                ? name
+                : '$name • $registration';
 
-      final name =
-          booking.vehicleName.trim();
-
-      final registration =
-          booking.vehicleRegistrationNumber
-              .trim();
-
-      final label =
-          name.isEmpty
-              ? registration.isEmpty
-                  ? 'Vehicle'
-                  : registration
-              : registration.isEmpty
-                  ? name
-                  : '$name • $registration';
-
-      unique.putIfAbsent(
-        id,
-        () => _VehicleFilterItem(
-          id: id,
-          label: label,
-          vehicleName:
-              name.isEmpty
-                  ? 'Vehicle'
-                  : name,
-          registrationNumber:
-              registration,
-        ),
-      );
-    }
-
-    final options =
-        unique.values.toList();
-
-    options.sort(
-      (a, b) => a.label
-          .toLowerCase()
-          .compareTo(
-            b.label.toLowerCase(),
-          ),
+    return _VehicleFilterItem(
+      id: vehicle.id,
+      label: label,
+      vehicleName:
+          name.isEmpty ? 'Vehicle' : name,
+      registrationNumber:
+          registration,
     );
+  }).toList();
 
-    return options;
-  }
+  options.sort(
+    (a, b) => a.label
+        .toLowerCase()
+        .compareTo(
+          b.label.toLowerCase(),
+        ),
+  );
+
+  return options;
+}
 
   Future<void> _showVehicleFilter() async {
     final options =
         _vehicleFilterOptions();
+if (_isLoadingVehicles) {
+  _showInfo('Loading vehicles...');
+  return;
+}
 
-    if (options.isEmpty) {
-      _showInfo(
-        'No vehicles are available in the loaded bookings.',
-      );
-      return;
-    }
+if (options.isEmpty) {
+  _showInfo(
+    'No active vehicles are available.',
+  );
+  return;
+}
 
     final value =
         await showModalBottomSheet<String>(
@@ -1343,7 +2405,7 @@ class _BookingsScreenState
               : value;
     });
 
-    _applyFilters();
+    _loadBookings(refresh: true);
   }
 
   Widget _vehicleFilterTile({
@@ -1622,7 +2684,7 @@ class _BookingsScreenState
       _customDate = null;
     });
 
-    _applyFilters();
+   _loadBookings(refresh: true);
   }
 
   // ============================================================
@@ -1752,7 +2814,7 @@ class _BookingsScreenState
           value;
     });
 
-    _applyFilters();
+   _loadBookings(refresh: true);
   }
 
   Widget _sheetHandle() {
@@ -2202,6 +3264,28 @@ class _BookingsScreenState
                   ),
                 ],
               ),
+              const SizedBox(
+  height: AppSpacing.sm,
+),
+
+Row(
+  children: [
+    const Icon(
+      Icons.access_time_rounded,
+      size: 14,
+      color: AppColors.textSecondary,
+    ),
+    const SizedBox(width: 6),
+    Text(
+      'Created ${DateFormat('dd MMM yyyy, hh:mm a').format(booking.createdAt)}',
+      style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textSecondary,
+      ),
+    ),
+  ],
+),
 
               const SizedBox(
                 height:

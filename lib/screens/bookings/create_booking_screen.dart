@@ -1527,18 +1527,7 @@ height: 1.4,
         // PAYMENT
         // ----------------------------------------------------
 
-        _textField(
-          controller:
-              _paidAmountController,
-          label: 'Amount Paid',
-          hint: '0',
-          icon:
-              Icons.payments_outlined,
-          keyboardType:
-              const TextInputType.numberWithOptions(
-            decimal: true,
-          ),
-        ),
+        
 
         const SizedBox(
           height: AppSpacing.sm,
@@ -2221,27 +2210,14 @@ if (customer == null) {
   // PAYMENT
   // ----------------------------------------------------------
 
-  final paidAmount =
-      _doubleValue(
-    _paidAmountController,
-  );
+     
 
   final total =
       _totalAmount;
 
-  if (paidAmount < 0) {
-    _showError(
-      'Paid amount cannot be negative.',
-    );
-    return;
-  }
+ 
 
-  if (paidAmount > total) {
-    _showError(
-      'Paid amount cannot be greater than the total amount.',
-    );
-    return;
-  }
+  
 
   // ----------------------------------------------------------
   // SECURITY DEPOSIT
@@ -2431,8 +2407,7 @@ if (customer == null) {
       // PAYMENT
       // ------------------------------------------------------
 
-      paidAmount:
-          paidAmount,
+      paidAmount:0,
 
       // ------------------------------------------------------
       // AGREEMENT

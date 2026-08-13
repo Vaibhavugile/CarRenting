@@ -762,7 +762,11 @@ Widget _buildVehicleStats() {
   // BOOKINGS
   // ============================================================
 
-  Widget _buildBookingStats() {
+  // ============================================================
+// BOOKINGS
+// ============================================================
+
+Widget _buildBookingStats() {
   final stats = _stats!;
 
   Future<void> openBookings() async {
@@ -778,20 +782,21 @@ Widget _buildVehicleStats() {
   }
 
   return Column(
-    crossAxisAlignment:
-        CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // ========================================================
+      // SECTION HEADER
+      // ========================================================
+
       Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius:
-              BorderRadius.circular(
+          borderRadius: BorderRadius.circular(
             AppRadius.md,
           ),
           onTap: openBookings,
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(
+            padding: const EdgeInsets.symmetric(
               vertical: 4,
             ),
             child: Row(
@@ -799,31 +804,25 @@ Widget _buildVehicleStats() {
                 Expanded(
                   child: _title(
                     'Bookings',
-                    'Rental activity',
+                    'Today\'s rental activity',
                   ),
                 ),
 
                 Container(
                   width: 34,
                   height: 34,
-                  decoration:
-                      BoxDecoration(
-                    color:
-                        AppColors.primary
-                            .withValues(
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(
                       alpha: 0.08,
                     ),
-                    borderRadius:
-                        BorderRadius.circular(
+                    borderRadius: BorderRadius.circular(
                       AppRadius.md,
                     ),
                   ),
                   child: const Icon(
-                    Icons
-                        .arrow_forward_ios_rounded,
+                    Icons.arrow_forward_ios_rounded,
                     size: 14,
-                    color:
-                        AppColors.primary,
+                    color: AppColors.primary,
                   ),
                 ),
               ],
@@ -836,18 +835,18 @@ Widget _buildVehicleStats() {
         height: AppSpacing.lg,
       ),
 
+      // ========================================================
+      // TODAY'S CREATED + PICKUP
+      // ========================================================
+
       Row(
         children: [
           Expanded(
             child: _statCard(
-              icon:
-                  Icons.today_rounded,
-              title:
-                  'Today',
-              value:
-                  '${stats.todayBookings}',
-              onTap:
-                  openBookings,
+              icon: Icons.add_circle_outline_rounded,
+              title: 'Created Today',
+              value: '${stats.todayCreatedBookings}',
+              onTap: openBookings,
             ),
           ),
 
@@ -857,15 +856,31 @@ Widget _buildVehicleStats() {
 
           Expanded(
             child: _statCard(
-              icon:
-                  Icons
-                      .directions_car_filled_rounded,
-              title:
-                  'Active',
-              value:
-                  '${stats.activeBookings}',
-              onTap:
-                  openBookings,
+              icon: Icons.directions_car_filled_rounded,
+              title: 'Pickup Today',
+              value: '${stats.todayPickupBookings}',
+              onTap: openBookings,
+            ),
+          ),
+        ],
+      ),
+
+      const SizedBox(
+        height: AppSpacing.md,
+      ),
+
+      // ========================================================
+      // TODAY'S RETURN
+      // ========================================================
+
+      Row(
+        children: [
+          Expanded(
+            child: _statCard(
+              icon: Icons.assignment_return_rounded,
+              title: 'Return Today',
+              value: '${stats.todayReturnBookings}',
+              onTap: openBookings,
             ),
           ),
 
@@ -873,18 +888,9 @@ Widget _buildVehicleStats() {
             width: AppSpacing.md,
           ),
 
-          Expanded(
-            child: _statCard(
-              icon:
-                  Icons
-                      .event_available_rounded,
-              title:
-                  'Upcoming',
-              value:
-                  '${stats.upcomingBookings}',
-              onTap:
-                  openBookings,
-            ),
+          // Empty space to keep the card width consistent
+          const Expanded(
+            child: SizedBox(),
           ),
         ],
       ),
