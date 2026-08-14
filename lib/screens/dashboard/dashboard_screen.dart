@@ -10,6 +10,7 @@ import '../vehicles/vehicle_list_screen.dart';
 import '../bookings/availability_screen.dart';
 import '../bookings/branch_availability_screen.dart';
 import '../bookings/bookings_screen.dart';
+import '../accounts/accounts_screen.dart';
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
     super.key,
@@ -427,121 +428,152 @@ _buildQuickActions(),
   // REVENUE
   // ============================================================
 
-  Widget _buildRevenueCard() {
-    final stats = _stats!;
+ // ============================================================
+// REVENUE
+// ============================================================
 
-    return Container(
-      padding:
-          const EdgeInsets.all(
-        AppSpacing.xl,
+Widget _buildRevenueCard() {
+  final stats = _stats!;
+
+  return Container(
+    padding:
+        const EdgeInsets.all(
+      AppSpacing.xl,
+    ),
+
+    decoration:
+        BoxDecoration(
+      color: Colors.white,
+
+      borderRadius:
+          BorderRadius.circular(
+        AppRadius.xl,
       ),
 
-      decoration:
-          BoxDecoration(
-        color: Colors.white,
+      border: Border.all(
+        color:
+            AppColors.border,
+      ),
 
-        borderRadius:
-            BorderRadius.circular(
-          AppRadius.xl,
+      boxShadow:
+          AppShadows.card,
+    ),
+
+    child: Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+
+      children: [
+        // ======================================================
+        // HEADER
+        // ======================================================
+
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Revenue',
+                style:
+                    Theme.of(context)
+                        .textTheme
+                        .titleLarge,
+              ),
+            ),
+
+            const Icon(
+              Icons.trending_up_rounded,
+              color:
+                  AppColors.success,
+            ),
+          ],
         ),
 
-        border: Border.all(
-          color:
-              AppColors.border,
+        const SizedBox(
+          height:
+              AppSpacing.xl,
         ),
 
-        boxShadow:
-            AppShadows.card,
-      ),
+        // ======================================================
+        // MONTH REVENUE
+        // ======================================================
 
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        Text(
+          '₹${_formatAmount(
+            stats.monthRevenue,
+          )}',
 
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Revenue',
-
-                  style:
-                      Theme.of(context)
-                          .textTheme
-                          .titleLarge,
-                ),
+          style:
+              Theme.of(context)
+                  .textTheme
+                  .displaySmall
+                  ?.copyWith(
+                fontWeight:
+                    FontWeight.w800,
               ),
+        ),
 
-              const Icon(
-                Icons
-                    .trending_up_rounded,
-                color:
-                    AppColors.success,
+        const SizedBox(
+          height:
+              AppSpacing.sm,
+        ),
+
+        Text(
+          'This month',
+          style:
+              Theme.of(context)
+                  .textTheme
+                  .bodySmall,
+        ),
+
+        const SizedBox(
+          height:
+              AppSpacing.xl,
+        ),
+
+        const Divider(),
+
+        const SizedBox(
+          height:
+              AppSpacing.lg,
+        ),
+
+        // ======================================================
+        // TODAY RENT + TODAY DEPOSIT
+        // ======================================================
+
+        Row(
+          children: [
+            // ==================================================
+            // TODAY RENT
+            // ==================================================
+
+            Expanded(
+              child: _miniMetric(
+                'Today\'s Rent',
+                '₹${_formatAmount(
+                  stats.todayRent,
+                )}',
               ),
-            ],
-          ),
+            ),
 
-          const SizedBox(
-            height: AppSpacing.xl,
-          ),
+            // ==================================================
+            // TODAY DEPOSIT
+            // ==================================================
 
-          Text(
-            '₹${_formatAmount(stats.monthRevenue)}',
-
-            style:
-                Theme.of(context)
-                    .textTheme
-                    .displaySmall
-                    ?.copyWith(
-                  fontWeight:
-                      FontWeight.w800,
-                ),
-          ),
-
-          const SizedBox(
-            height: AppSpacing.sm,
-          ),
-
-          Text(
-            'This month',
-
-            style:
-                Theme.of(context)
-                    .textTheme
-                    .bodySmall,
-          ),
-
-          const SizedBox(
-            height: AppSpacing.xl,
-          ),
-
-          const Divider(),
-
-          const SizedBox(
-            height: AppSpacing.lg,
-          ),
-
-          Row(
-            children: [
-              Expanded(
-                child: _miniMetric(
-                  'Today',
-                  '₹${_formatAmount(stats.todayRevenue)}',
-                ),
+            Expanded(
+              child: _miniMetric(
+                'Today\'s Deposit',
+                '₹${_formatAmount(
+                  stats.todayDeposit,
+                )}',
               ),
-
-              Expanded(
-                child: _miniMetric(
-                  'Pending',
-                  '₹${_formatAmount(stats.pendingPayments)}',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
 
   // ============================================================
   // VEHICLES
@@ -1052,15 +1084,26 @@ Row(
     ),
 
     Expanded(
-      child: _actionCard(
-        icon:
-            Icons.payments_outlined,
-        title: 'Payment',
-        onTap: () {
-          // Payment screen will be connected next.
-        },
-      ),
-    ),
+  child: _actionCard(
+    icon:
+        Icons.payments_outlined,
+    title: 'Payment',
+    onTap: () async {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              const AccountsScreen(),
+        ),
+      );
+
+      // Refresh dashboard when returning
+      // from Accounts.
+      if (!mounted) return;
+
+      await _loadDashboard();
+    },
+  ),
+),
   ],
 ),
     ],

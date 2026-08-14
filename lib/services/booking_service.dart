@@ -704,20 +704,28 @@ static const int defaultPageSize = 50;
 // ============================================================
 // ADD PAYMENT
 // ============================================================
-
 Future<PaymentModel> addPayment({
   required String bookingId,
   required double amount,
+  required PaymentType type,
   required PaymentMode mode,
   required DateTime paymentDate,
   String? referenceNumber,
   String? notes,
 }) async {
+  // ==========================================================
+  // VALIDATE AMOUNT
+  // ==========================================================
+
   if (amount <= 0) {
     throw Exception(
       'Payment amount must be greater than zero.',
     );
   }
+
+  // ==========================================================
+  // CURRENT USER
+  // ==========================================================
 
   final user = currentUser;
 
@@ -727,9 +735,56 @@ Future<PaymentModel> addPayment({
     );
   }
 
-  // ----------------------------------------------------------
+  // ==========================================================
+  // GET CURRENT USER MODEL
+  //
+  // Used to get:
+  // - businessId
+  // - branchCode
+  // ==========================================================
+
+  final userModel =
+      await _getCurrentUserModel();
+
+  final businessId =
+      userModel.businessId;
+
+  final branchCode =
+      userModel.branchCode;
+
+  // ==========================================================
+  // VALIDATE BUSINESS
+  // ==========================================================
+
+  if (businessId == null ||
+      businessId.trim().isEmpty) {
+    throw Exception(
+      'No business is assigned to your account.',
+    );
+  }
+
+  // ==========================================================
+  // VALIDATE BRANCH
+  // ==========================================================
+
+  if (branchCode == null ||
+      branchCode.trim().isEmpty) {
+    throw Exception(
+      'No branch is assigned to your account.',
+    );
+  }
+
+  final normalizedBusinessId =
+      businessId.trim();
+
+  final normalizedBranchCode =
+      branchCode
+          .trim()
+          .toUpperCase();
+
+  // ==========================================================
   // GET BOOKING
-  // ----------------------------------------------------------
+  // ==========================================================
 
   final bookingRef =
       _bookings.doc(bookingId);
@@ -748,46 +803,111 @@ Future<PaymentModel> addPayment({
     bookingSnapshot,
   );
 
-  // ----------------------------------------------------------
-  // CHECK PENDING AMOUNT
-  // ----------------------------------------------------------
+  // ==========================================================
+  // VALIDATE BOOKING OWNERSHIP
+  //
+  // Make sure the booking belongs to the same
+  // business and branch as the logged-in user.
+  // ==========================================================
 
-  final pendingAmount =
-      booking.pendingAmount;
-
-  if (amount > pendingAmount) {
+  if (booking.businessId !=
+      normalizedBusinessId) {
     throw Exception(
-      'Payment cannot be greater than the pending amount.',
+      'This booking does not belong to your business.',
     );
   }
 
-  // ----------------------------------------------------------
-  // CREATE PAYMENT
-  // ----------------------------------------------------------
+  if (booking.branchCode
+          .trim()
+          .toUpperCase() !=
+      normalizedBranchCode) {
+    throw Exception(
+      'This booking does not belong to your branch.',
+    );
+  }
+
+  // ==========================================================
+  // VALIDATE PAYMENT
+  //
+  // RENT:
+  //   Cannot exceed pending amount.
+  //
+  // DEPOSIT:
+  //   Cannot exceed pending amount.
+  //
+  // REFUND DEPOSIT:
+  //   Not checked against pending amount.
+  // ==========================================================
+
+  if (type == PaymentType.rent ||
+      type == PaymentType.deposit) {
+    if (amount >
+        booking.pendingAmount) {
+      throw Exception(
+        '${type == PaymentType.rent ? 'Rent' : 'Deposit'} payment cannot be greater than the pending amount.',
+      );
+    }
+  }
+
+  // ==========================================================
+  // CREATE PAYMENT REFERENCE
+  //
+  // bookings/{bookingId}/payments/{paymentId}
+  // ==========================================================
 
   final paymentRef =
       bookingRef
           .collection('payments')
           .doc();
 
+  // ==========================================================
+  // CREATED TIME
+  // ==========================================================
+
   final now =
       DateTime.now();
 
+  // ==========================================================
+  // CREATE PAYMENT MODEL
+  // ==========================================================
+
   final payment =
       PaymentModel(
-    id: paymentRef.id,
+    id:
+        paymentRef.id,
 
     bookingId:
         bookingId,
 
+    // ========================================================
+    // NEW
+    // ========================================================
+
+    businessId:
+        normalizedBusinessId,
+
+    branchCode:
+        normalizedBranchCode,
+
+    // ========================================================
+    // PAYMENT
+    // ========================================================
+
     amount:
         amount,
+
+    type:
+        type,
 
     mode:
         mode,
 
     paymentDate:
         paymentDate,
+
+    // ========================================================
+    // OPTIONAL DETAILS
+    // ========================================================
 
     referenceNumber:
         referenceNumber == null ||
@@ -804,6 +924,10 @@ Future<PaymentModel> addPayment({
             ? null
             : notes.trim(),
 
+    // ========================================================
+    // AUDIT
+    // ========================================================
+
     addedBy:
         user.uid,
 
@@ -811,42 +935,130 @@ Future<PaymentModel> addPayment({
         now,
   );
 
-  // ----------------------------------------------------------
-  // NEW PAYMENT TOTALS
-  // ----------------------------------------------------------
+  // ==========================================================
+  // PAYMENT TOTALS
+  //
+  // RENT:
+  //   paidAmount    + amount
+  //   pendingAmount - amount
+  //   status         recalculated
+  //
+  // DEPOSIT:
+  //   paidAmount    + amount
+  //   pendingAmount - amount
+  //   status         recalculated
+  //
+  // REFUND DEPOSIT:
+  //   paidAmount     unchanged
+  //   pendingAmount  unchanged
+  //   status         unchanged
+  // ==========================================================
 
-  final newPaidAmount =
-      booking.paidAmount +
-          amount;
+  double newPaidAmount =
+      booking.paidAmount;
 
-  final newPendingAmount =
-      booking.totalAmount -
-          newPaidAmount;
+  double finalPendingAmount =
+      booking.pendingAmount;
 
-  final finalPendingAmount =
-      newPendingAmount < 0
-          ? 0.0
-          : newPendingAmount;
+  PaymentStatus newPaymentStatus =
+      booking.paymentStatus;
 
-  final newPaymentStatus =
-      _calculatePaymentStatus(
-    totalAmount:
-        booking.totalAmount,
-    paidAmount:
-        newPaidAmount,
-  );
+  // ==========================================================
+  // RENT
+  // ==========================================================
 
-  // ----------------------------------------------------------
-  // SAVE PAYMENT + UPDATE BOOKING
-  // ----------------------------------------------------------
+  if (type == PaymentType.rent) {
+    newPaidAmount =
+        booking.paidAmount +
+            amount;
+
+    finalPendingAmount =
+        booking.pendingAmount -
+            amount;
+
+    if (finalPendingAmount <
+        0) {
+      finalPendingAmount =
+          0.0;
+    }
+
+    newPaymentStatus =
+        _calculatePaymentStatus(
+      totalAmount:
+          booking.totalAmount,
+      paidAmount:
+          newPaidAmount,
+    );
+  }
+
+  // ==========================================================
+  // DEPOSIT
+  // ==========================================================
+
+  else if (
+      type == PaymentType.deposit) {
+    newPaidAmount =
+        booking.paidAmount +
+            amount;
+
+    finalPendingAmount =
+        booking.pendingAmount -
+            amount;
+
+    if (finalPendingAmount <
+        0) {
+      finalPendingAmount =
+          0.0;
+    }
+
+    newPaymentStatus =
+        _calculatePaymentStatus(
+      totalAmount:
+          booking.totalAmount,
+      paidAmount:
+          newPaidAmount,
+    );
+  }
+
+  // ==========================================================
+  // REFUND DEPOSIT
+  //
+  // IMPORTANT:
+  // No booking payment totals are changed.
+  // ==========================================================
+
+  else if (
+      type ==
+          PaymentType.refundDeposit) {
+    newPaidAmount =
+        booking.paidAmount;
+
+    finalPendingAmount =
+        booking.pendingAmount;
+
+    newPaymentStatus =
+        booking.paymentStatus;
+  }
+
+  // ==========================================================
+  // FIRESTORE BATCH
+  // ==========================================================
 
   final batch =
       _firestore.batch();
+
+  // ==========================================================
+  // SAVE PAYMENT
+  // ==========================================================
 
   batch.set(
     paymentRef,
     payment.toFirestore(),
   );
+
+  // ==========================================================
+  // UPDATE BOOKING PAYMENT SUMMARY
+  // ==========================================================
 
   batch.update(
     bookingRef,
@@ -868,7 +1080,15 @@ Future<PaymentModel> addPayment({
     },
   );
 
+  // ==========================================================
+  // COMMIT
+  // ==========================================================
+
   await batch.commit();
+
+  // ==========================================================
+  // RETURN PAYMENT
+  // ==========================================================
 
   return payment;
 }

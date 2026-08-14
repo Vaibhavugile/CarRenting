@@ -8,6 +8,7 @@ import '../../models/vehicle_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/vehicle_service.dart';
 import 'vehicle_details_screen.dart';
+import 'add_vehicle_screen.dart';
 class VehicleListScreen extends StatefulWidget {
   const VehicleListScreen({
     super.key,
@@ -2152,21 +2153,17 @@ class _VehicleListScreenState
   // ============================================================
   // OPEN ADD VEHICLE
   // ============================================================
+Future<void> _openAddVehicle() async {
+  final result = await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => const AddVehicleScreen(),
+    ),
+  );
 
-  Future<void>
-      _openAddVehicle() async {
-    final result =
-        await Navigator.of(
-      context,
-    ).pushNamed(
-      '/add-vehicle',
-    );
-
-    if (result != null &&
-        mounted) {
-      await _loadInitial();
-    }
+  if (result != null && mounted) {
+    await _loadInitial();
   }
+}
 
   // ============================================================
   // OPEN VEHICLE

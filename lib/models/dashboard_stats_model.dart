@@ -29,8 +29,13 @@ class DashboardStatsModel {
   // REVENUE
   // ============================================================
 
+  // Existing revenue values
   final double todayRevenue;
   final double monthRevenue;
+
+  // Today's payment breakdown
+  final double todayRent;
+  final double todayDeposit;
 
   // ============================================================
   // PAYMENTS
@@ -57,23 +62,31 @@ class DashboardStatsModel {
   const DashboardStatsModel({
     required this.branchCode,
 
+    // VEHICLES
     required this.totalVehicles,
     required this.availableVehicles,
     required this.reservedVehicles,
     required this.rentedVehicles,
     required this.maintenanceVehicles,
 
+    // BOOKINGS
     required this.todayCreatedBookings,
     required this.todayPickupBookings,
     required this.todayReturnBookings,
 
+    // REVENUE
     required this.todayRevenue,
     required this.monthRevenue,
+    required this.todayRent,
+    required this.todayDeposit,
 
+    // PAYMENTS
     required this.pendingPayments,
 
+    // CUSTOMERS
     required this.totalCustomers,
 
+    // TIMESTAMP
     required this.updatedAt,
   });
 
@@ -122,6 +135,10 @@ class DashboardStatsModel {
 
       monthRevenue: 0.0,
 
+      todayRent: 0.0,
+
+      todayDeposit: 0.0,
+
       // --------------------------------------------------------
       // PAYMENTS
       // --------------------------------------------------------
@@ -138,7 +155,8 @@ class DashboardStatsModel {
       // TIMESTAMP
       // --------------------------------------------------------
 
-      updatedAt: DateTime.now(),
+      updatedAt:
+          DateTime.now(),
     );
   }
 
@@ -229,6 +247,30 @@ class DashboardStatsModel {
       ),
 
       // --------------------------------------------------------
+      // TODAY RENT
+      //
+      // Old dashboard documents may not have this field.
+      // Default = 0 so existing documents continue working.
+      // --------------------------------------------------------
+
+      todayRent:
+          _toDouble(
+        data['todayRent'],
+      ),
+
+      // --------------------------------------------------------
+      // TODAY DEPOSIT
+      //
+      // Old dashboard documents may not have this field.
+      // Default = 0 so existing documents continue working.
+      // --------------------------------------------------------
+
+      todayDeposit:
+          _toDouble(
+        data['todayDeposit'],
+      ),
+
+      // --------------------------------------------------------
       // PAYMENTS
       // --------------------------------------------------------
 
@@ -312,6 +354,12 @@ class DashboardStatsModel {
       'monthRevenue':
           monthRevenue,
 
+      'todayRent':
+          todayRent,
+
+      'todayDeposit':
+          todayDeposit,
+
       // --------------------------------------------------------
       // PAYMENTS
       // --------------------------------------------------------
@@ -344,23 +392,31 @@ class DashboardStatsModel {
   DashboardStatsModel copyWith({
     String? branchCode,
 
+    // VEHICLES
     int? totalVehicles,
     int? availableVehicles,
     int? reservedVehicles,
     int? rentedVehicles,
     int? maintenanceVehicles,
 
+    // BOOKINGS
     int? todayCreatedBookings,
     int? todayPickupBookings,
     int? todayReturnBookings,
 
+    // REVENUE
     double? todayRevenue,
     double? monthRevenue,
+    double? todayRent,
+    double? todayDeposit,
 
+    // PAYMENTS
     double? pendingPayments,
 
+    // CUSTOMERS
     int? totalCustomers,
 
+    // TIMESTAMP
     DateTime? updatedAt,
   }) {
     return DashboardStatsModel(
@@ -419,6 +475,14 @@ class DashboardStatsModel {
       monthRevenue:
           monthRevenue ??
               this.monthRevenue,
+
+      todayRent:
+          todayRent ??
+              this.todayRent,
+
+      todayDeposit:
+          todayDeposit ??
+              this.todayDeposit,
 
       // --------------------------------------------------------
       // PAYMENTS

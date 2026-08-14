@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/dashboard_stats_model.dart';
+import '../models/payment_model.dart';
 
 class DashboardService {
   DashboardService._();
@@ -85,6 +86,154 @@ class DashboardService {
   }
 
   // ============================================================
+  // PAYMENT TOTAL HELPER
+  //
+  // Runs ONE Firestore query for today's payments.
+  //
+  // Firebase filters:
+  // - businessId
+  // - branchCode
+  // - paymentDate
+  //
+  // Then we calculate:
+  // - rent
+  // - deposit
+  //
+  // Refund Deposit is intentionally ignored.
+  // ============================================================
+
+  Future<Map<String, double>>
+      _getTodayPaymentTotals({
+    required String businessId,
+    required String branchCode,
+    required Timestamp todayStart,
+    required Timestamp tomorrowStart,
+  }) async {
+    debugPrint('');
+    debugPrint(
+      '============================================================',
+    );
+    debugPrint(
+      'DASHBOARD PAYMENT QUERY START',
+    );
+    debugPrint(
+      '============================================================',
+    );
+
+    try {
+      final snapshot =
+          await _firestore
+              .collectionGroup(
+                'payments',
+              )
+              .where(
+                'businessId',
+                isEqualTo:
+                    businessId,
+              )
+              .where(
+                'branchCode',
+                isEqualTo:
+                    branchCode,
+              )
+              .where(
+                'paymentDate',
+                isGreaterThanOrEqualTo:
+                    todayStart,
+              )
+              .where(
+                'paymentDate',
+                isLessThan:
+                    tomorrowStart,
+              )
+              .get();
+
+      double todayRent = 0.0;
+
+      double todayDeposit = 0.0;
+
+      double todayRefundDeposit = 0.0;
+
+      for (final doc
+          in snapshot.docs) {
+        final payment =
+            PaymentModel.fromFirestore(
+          doc,
+        );
+
+        switch (payment.type) {
+          case PaymentType.rent:
+            todayRent +=
+                payment.amount;
+            break;
+
+          case PaymentType.deposit:
+            todayDeposit +=
+                payment.amount;
+            break;
+
+          case PaymentType.refundDeposit:
+            todayRefundDeposit +=
+                payment.amount;
+            break;
+        }
+      }
+
+      debugPrint(
+        '------------------------------------------------------------',
+      );
+      debugPrint(
+        'DASHBOARD PAYMENT QUERY SUCCESS',
+      );
+      debugPrint(
+        'PAYMENTS FOUND: ${snapshot.docs.length}',
+      );
+      debugPrint(
+        'TODAY RENT: ₹$todayRent',
+      );
+      debugPrint(
+        'TODAY DEPOSIT: ₹$todayDeposit',
+      );
+      debugPrint(
+        'TODAY REFUND DEPOSIT: ₹$todayRefundDeposit',
+      );
+      debugPrint(
+        '------------------------------------------------------------',
+      );
+
+      return {
+        'todayRent':
+            todayRent,
+        'todayDeposit':
+            todayDeposit,
+      };
+    } catch (e, stackTrace) {
+      debugPrint('');
+      debugPrint(
+        '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+      );
+      debugPrint(
+        'DASHBOARD PAYMENT QUERY FAILED',
+      );
+      debugPrint(
+        'ERROR:',
+      );
+      debugPrint(
+        e.toString(),
+      );
+      debugPrint(
+        '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+      );
+
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
+
+      rethrow;
+    }
+  }
+
+  // ============================================================
   // GET DASHBOARD STATS
   //
   // Stored stats:
@@ -97,6 +246,10 @@ class DashboardService {
   // - today's created
   // - today's pickup
   // - today's return
+  //
+  // Live payment stats:
+  // - today's rent
+  // - today's deposit
   // ============================================================
 
   Future<DashboardStatsModel> getStats(
@@ -290,27 +443,17 @@ class DashboardService {
 
     // ==========================================================
     // 1. TODAY CREATED
-    //
-    // Firebase filters:
-    //
-    // businessId == current business
-    // branchCode == current branch
-    // createdAt >= today
-    // createdAt < tomorrow
-    //
-    // IMPORTANT:
-    // We use count().
-    //
-    // We DO NOT download booking documents.
     // ==========================================================
 
     final todayCreatedBookings =
         await _getBookingCount(
-      label: 'CREATED TODAY',
+      label:
+          'CREATED TODAY',
       query: bookings
           .where(
             'businessId',
-            isEqualTo: businessId,
+            isEqualTo:
+                businessId,
           )
           .where(
             'branchCode',
@@ -332,26 +475,18 @@ class DashboardService {
     // ==========================================================
     // 2. TODAY PICKUP
     //
-    // Firebase filters:
-    //
-    // businessId == current business
-    // branchCode == current branch
-    // pickupDateTime >= today
-    // pickupDateTime < tomorrow
-    //
     // NO STATUS FILTER.
-    //
-    // Cancelled/completed/etc. are still included if their
-    // pickupDateTime is today.
     // ==========================================================
 
     final todayPickupBookings =
         await _getBookingCount(
-      label: 'PICKUP TODAY',
+      label:
+          'PICKUP TODAY',
       query: bookings
           .where(
             'businessId',
-            isEqualTo: businessId,
+            isEqualTo:
+                businessId,
           )
           .where(
             'branchCode',
@@ -373,26 +508,18 @@ class DashboardService {
     // ==========================================================
     // 3. TODAY RETURN
     //
-    // Firebase filters:
-    //
-    // businessId == current business
-    // branchCode == current branch
-    // returnDateTime >= today
-    // returnDateTime < tomorrow
-    //
     // NO STATUS FILTER.
-    //
-    // Cancelled/completed/etc. are still included if their
-    // returnDateTime is today.
     // ==========================================================
 
     final todayReturnBookings =
         await _getBookingCount(
-      label: 'RETURN TODAY',
+      label:
+          'RETURN TODAY',
       query: bookings
           .where(
             'businessId',
-            isEqualTo: businessId,
+            isEqualTo:
+                businessId,
           )
           .where(
             'branchCode',
@@ -412,6 +539,57 @@ class DashboardService {
     );
 
     // ==========================================================
+    // 4. TODAY PAYMENT TOTALS
+    //
+    // Firebase filters the payment documents.
+    //
+    // RENT:
+    //   included in todayRent
+    //
+    // DEPOSIT:
+    //   included in todayDeposit
+    //
+    // REFUND DEPOSIT:
+    //   NOT included in either.
+    // ==========================================================
+
+    final todayPaymentTotals =
+        await _getTodayPaymentTotals(
+      businessId:
+          businessId,
+      branchCode:
+          effectiveBranchCode,
+      todayStart:
+          todayStartTimestamp,
+      tomorrowStart:
+          tomorrowStartTimestamp,
+    );
+
+    final todayRent =
+        todayPaymentTotals[
+                'todayRent'] ??
+            0.0;
+
+    final todayDeposit =
+        todayPaymentTotals[
+                'todayDeposit'] ??
+            0.0;
+
+    // ==========================================================
+    // TODAY REVENUE
+    //
+    // For dashboard revenue:
+    //
+    // Rent + Deposit
+    //
+    // Refund Deposit is excluded.
+    // ==========================================================
+
+    final todayPaymentRevenue =
+        todayRent +
+            todayDeposit;
+
+    // ==========================================================
     // PRINT FINAL COUNTS
     // ==========================================================
 
@@ -420,16 +598,25 @@ class DashboardService {
       '============================================================',
     );
     debugPrint(
-      'DASHBOARD FINAL BOOKING COUNTS',
+      'DASHBOARD FINAL VALUES',
     );
     debugPrint(
-      'Created Today: $todayCreatedBookings',
+      'Created Today : $todayCreatedBookings',
     );
     debugPrint(
-      'Pickup Today : $todayPickupBookings',
+      'Pickup Today  : $todayPickupBookings',
     );
     debugPrint(
-      'Return Today : $todayReturnBookings',
+      'Return Today  : $todayReturnBookings',
+    );
+    debugPrint(
+      'Rent Today    : ₹$todayRent',
+    );
+    debugPrint(
+      'Deposit Today : ₹$todayDeposit',
+    );
+    debugPrint(
+      'Revenue Today : ₹$todayPaymentRevenue',
     );
     debugPrint(
       '============================================================',
@@ -443,6 +630,10 @@ class DashboardService {
       branchCode:
           effectiveBranchCode,
 
+      // --------------------------------------------------------
+      // BOOKING STATS
+      // --------------------------------------------------------
+
       todayCreatedBookings:
           todayCreatedBookings,
 
@@ -451,6 +642,23 @@ class DashboardService {
 
       todayReturnBookings:
           todayReturnBookings,
+
+      // --------------------------------------------------------
+      // PAYMENT / REVENUE STATS
+      // --------------------------------------------------------
+
+      todayRent:
+          todayRent,
+
+      todayDeposit:
+          todayDeposit,
+
+      todayRevenue:
+          todayPaymentRevenue,
+
+      // --------------------------------------------------------
+      // TIMESTAMP
+      // --------------------------------------------------------
 
       updatedAt:
           DateTime.now(),

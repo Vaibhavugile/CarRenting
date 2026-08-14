@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:car_rental/services/booking_service.dart';
-
 import 'package:car_rental/models/booking_model.dart';
 import '../../app/theme.dart';
 import 'pickup_screen.dart';
@@ -654,6 +653,27 @@ Future<void> _showAddPaymentDialog() async {
   final notesController =
       TextEditingController();
 
+  // ==========================================================
+  // PAYMENT TYPE
+  //
+  // What is this payment for?
+  //
+  // Rent
+  // Deposit
+  // Refund Deposit
+  // ==========================================================
+
+  PaymentType selectedPaymentType =
+      PaymentType.rent;
+
+  // ==========================================================
+  // PAYMENT MODE
+  //
+  // How was the payment made?
+  //
+  // Cash / UPI / Card / Bank Transfer / Other
+  // ==========================================================
+
   PaymentMode selectedMode =
       PaymentMode.cash;
 
@@ -664,7 +684,8 @@ Future<void> _showAddPaymentDialog() async {
 
   await showDialog(
     context: context,
-    barrierDismissible: !isSaving,
+    barrierDismissible:
+        !isSaving,
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (
@@ -676,15 +697,22 @@ Future<void> _showAddPaymentDialog() async {
               'Add Payment',
               style: TextStyle(
                 fontSize: 17,
-                fontWeight: FontWeight.w800,
+                fontWeight:
+                    FontWeight.w800,
               ),
             ),
 
-            content: SingleChildScrollView(
+            content:
+                SingleChildScrollView(
               child: Column(
                 mainAxisSize:
                     MainAxisSize.min,
                 children: [
+
+                  // ==================================================
+                  // AMOUNT
+                  // ==================================================
+
                   _editField(
                     label: 'Amount',
                     controller:
@@ -696,30 +724,92 @@ Future<void> _showAddPaymentDialog() async {
                     ),
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+                  // ==================================================
+                  // PAYMENT TYPE
+                  // ==================================================
+
+                  DropdownButtonFormField<
+                      PaymentType>(
+                    value:
+                        selectedPaymentType,
+
+                    decoration:
+                        const InputDecoration(
+                      labelText:
+                          'Payment Type',
+                    ),
+
+                    items:
+                        PaymentType.values
+                            .map(
+                      (type) =>
+                          DropdownMenuItem<
+                              PaymentType>(
+                        value: type,
+                        child: Text(
+                          _paymentTypeLabel(
+                            type,
+                          ),
+                        ),
+                      ),
+                    ).toList(),
+
+                    onChanged:
+                        isSaving
+                            ? null
+                            : (value) {
+                                if (value ==
+                                    null) {
+                                  return;
+                                }
+
+                                setDialogState(
+                                  () {
+                                    selectedPaymentType =
+                                        value;
+                                  },
+                                );
+                              },
+                  ),
+
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+                  // ==================================================
+                  // PAYMENT MODE
+                  // ==================================================
 
                   DropdownButtonFormField<
                       PaymentMode>(
-                    value: selectedMode,
+                    value:
+                        selectedMode,
+
                     decoration:
                         const InputDecoration(
                       labelText:
                           'Payment Mode',
                     ),
-                    items: PaymentMode
-                        .values
-                        .map(
-                          (mode) =>
-                              DropdownMenuItem(
-                            value: mode,
-                            child: Text(
-                              _paymentModeLabel(
-                                mode,
-                              ),
-                            ),
+
+                    items:
+                        PaymentMode.values
+                            .map(
+                      (mode) =>
+                          DropdownMenuItem<
+                              PaymentMode>(
+                        value: mode,
+                        child: Text(
+                          _paymentModeLabel(
+                            mode,
                           ),
-                        )
-                        .toList(),
+                        ),
+                      ),
+                    ).toList(),
+
                     onChanged:
                         isSaving
                             ? null
@@ -738,7 +828,13 @@ Future<void> _showAddPaymentDialog() async {
                               },
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+                  // ==================================================
+                  // PAYMENT DATE
+                  // ==================================================
 
                   InkWell(
                     onTap:
@@ -749,12 +845,15 @@ Future<void> _showAddPaymentDialog() async {
                                     await showDatePicker(
                                   context:
                                       context,
+
                                   initialDate:
                                       paymentDate,
+
                                   firstDate:
                                       DateTime(
                                     2020,
                                   ),
+
                                   lastDate:
                                       DateTime(
                                     2100,
@@ -775,6 +874,7 @@ Future<void> _showAddPaymentDialog() async {
                                     await showTimePicker(
                                   context:
                                       context,
+
                                   initialTime:
                                       TimeOfDay
                                           .fromDateTime(
@@ -800,17 +900,22 @@ Future<void> _showAddPaymentDialog() async {
                                   },
                                 );
                               },
-                    child: InputDecorator(
+
+                    child:
+                        InputDecorator(
                       decoration:
                           const InputDecoration(
                         labelText:
                             'Payment Date',
-                        suffixIcon: Icon(
+
+                        suffixIcon:
+                            Icon(
                           Icons
                               .calendar_month_rounded,
                           size: 19,
                         ),
                       ),
+
                       child: Text(
                         DateFormat(
                           'dd MMM yyyy • hh:mm a',
@@ -821,26 +926,49 @@ Future<void> _showAddPaymentDialog() async {
                     ),
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+                  // ==================================================
+                  // REFERENCE NUMBER
+                  // ==================================================
 
                   _editField(
                     label:
                         'Reference Number',
+
                     controller:
                         referenceController,
                   ),
 
+                  // ==================================================
+                  // NOTES
+                  // ==================================================
+
                   _editField(
-                    label: 'Notes',
+                    label:
+                        'Notes',
+
                     controller:
                         notesController,
+
                     maxLines: 2,
                   ),
                 ],
               ),
             ),
 
+            // ========================================================
+            // ACTIONS
+            // ========================================================
+
             actions: [
+
+              // ------------------------------------------------------
+              // CANCEL
+              // ------------------------------------------------------
+
               TextButton(
                 onPressed:
                     isSaving
@@ -850,16 +978,27 @@ Future<void> _showAddPaymentDialog() async {
                               dialogContext,
                             );
                           },
-                child: const Text(
+
+                child:
+                    const Text(
                   'Cancel',
                 ),
               ),
+
+              // ------------------------------------------------------
+              // ADD PAYMENT
+              // ------------------------------------------------------
 
               ElevatedButton(
                 onPressed:
                     isSaving
                         ? null
                         : () async {
+
+                            // ========================================
+                            // PARSE AMOUNT
+                            // ========================================
+
                             final amount =
                                 double.tryParse(
                               amountController
@@ -876,61 +1015,106 @@ Future<void> _showAddPaymentDialog() async {
                               return;
                             }
 
-                            if (amount >
-                                _booking
-                                    .pendingAmount) {
+                            // ========================================
+                            // CURRENT VALIDATION
+                            //
+                            // Keep this for now.
+                            //
+                            // We will change this in the next step
+                            // when Rent / Deposit / Refund Deposit
+                            // get separate accounting.
+                            // ========================================
+
+                            if (selectedPaymentType !=
+                                    PaymentType
+                                        .refundDeposit &&
+                                amount >
+                                    _booking
+                                        .pendingAmount) {
                               _showError(
                                 'Payment cannot be greater than the pending amount.',
                               );
                               return;
                             }
 
+                            // ========================================
+                            // START SAVING
+                            // ========================================
+
                             setDialogState(
                               () {
-                                isSaving = true;
+                                isSaving =
+                                    true;
                               },
                             );
 
                             try {
+
+                              // ======================================
+                              // SAVE PAYMENT
+                              // ======================================
+
                               final payment =
                                   await BookingService
                                       .instance
                                       .addPayment(
+
                                 bookingId:
                                     _booking.id,
+
                                 amount:
                                     amount,
+
+                                // NEW
+                                type:
+                                    selectedPaymentType,
+
                                 mode:
                                     selectedMode,
+
                                 paymentDate:
                                     paymentDate,
+
                                 referenceNumber:
                                     referenceController
-                                        .text
-                                        .trim()
-                                        .isEmpty
-                                    ? null
-                                    : referenceController
-                                        .text
-                                        .trim(),
+                                            .text
+                                            .trim()
+                                            .isEmpty
+                                        ? null
+                                        : referenceController
+                                            .text
+                                            .trim(),
+
                                 notes:
                                     notesController
-                                        .text
-                                        .trim()
-                                        .isEmpty
-                                    ? null
-                                    : notesController
-                                        .text
-                                        .trim(),
+                                            .text
+                                            .trim()
+                                            .isEmpty
+                                        ? null
+                                        : notesController
+                                            .text
+                                            .trim(),
                               );
+
+                              // ======================================
+                              // CHECK SCREEN
+                              // ======================================
 
                               if (!mounted) {
                                 return;
                               }
 
+                              // ======================================
+                              // CLOSE DIALOG
+                              // ======================================
+
                               Navigator.pop(
                                 dialogContext,
                               );
+
+                              // ======================================
+                              // REFRESH BOOKING
+                              // ======================================
 
                               await _refreshBooking();
 
@@ -938,17 +1122,28 @@ Future<void> _showAddPaymentDialog() async {
                                 return;
                               }
 
+                              // ======================================
+                              // SUCCESS
+                              // ======================================
+
                               _showSuccess(
-                                'Payment of ${_money(payment.amount)} added successfully.',
+                                '${_paymentTypeLabel(payment.type)} payment of ${_money(payment.amount)} added successfully.',
                               );
+
                             } catch (error) {
+
+                              // ======================================
+                              // ERROR
+                              // ======================================
+
                               if (!mounted) {
                                 return;
                               }
 
                               setDialogState(
                                 () {
-                                  isSaving = false;
+                                  isSaving =
+                                      false;
                                 },
                               );
 
@@ -959,6 +1154,7 @@ Future<void> _showAddPaymentDialog() async {
                               );
                             }
                           },
+
                 child:
                     isSaving
                         ? const SizedBox(
@@ -980,8 +1176,38 @@ Future<void> _showAddPaymentDialog() async {
     },
   );
 
+  // ================================================================
+  // DISPOSE CONTROLLERS
+  // ================================================================
+
   
 }
+
+
+// ==================================================================
+// PAYMENT TYPE LABEL
+// ==================================================================
+
+String _paymentTypeLabel(
+  PaymentType type,
+) {
+  switch (type) {
+    case PaymentType.rent:
+      return 'Rent';
+
+    case PaymentType.deposit:
+      return 'Deposit';
+
+    case PaymentType.refundDeposit:
+      return 'Refund Deposit';
+  }
+}
+
+
+// ==================================================================
+// PAYMENT MODE LABEL
+// ==================================================================
+
 String _paymentModeLabel(
   PaymentMode mode,
 ) {
@@ -1165,6 +1391,10 @@ Widget _buildPaymentItem(
     ),
     child: Row(
       children: [
+        // ========================================================
+        // PAYMENT ICON
+        // ========================================================
+
         Container(
           width: 34,
           height: 34,
@@ -1184,13 +1414,23 @@ Widget _buildPaymentItem(
           ),
         ),
 
-        const SizedBox(width: 10),
+        const SizedBox(
+          width: 10,
+        ),
+
+        // ========================================================
+        // PAYMENT DETAILS
+        // ========================================================
 
         Expanded(
           child: Column(
             crossAxisAlignment:
                 CrossAxisAlignment.start,
             children: [
+              // --------------------------------------------------
+              // AMOUNT
+              // --------------------------------------------------
+
               Text(
                 _money(payment.amount),
                 style: const TextStyle(
@@ -1200,7 +1440,34 @@ Widget _buildPaymentItem(
                 ),
               ),
 
-              const SizedBox(height: 3),
+              const SizedBox(
+                height: 3,
+              ),
+
+              // --------------------------------------------------
+              // PAYMENT TYPE
+              // --------------------------------------------------
+
+              Text(
+                _paymentTypeLabel(
+                  payment.type,
+                ),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight:
+                      FontWeight.w700,
+                  color:
+                      AppColors.primary,
+                ),
+              ),
+
+              const SizedBox(
+                height: 2,
+              ),
+
+              // --------------------------------------------------
+              // PAYMENT MODE + DATE
+              // --------------------------------------------------
 
               Text(
                 '${_paymentModeLabel(payment.mode)} • '
@@ -1211,6 +1478,10 @@ Widget _buildPaymentItem(
                       AppColors.textSecondary,
                 ),
               ),
+
+              // --------------------------------------------------
+              // REFERENCE
+              // --------------------------------------------------
 
               if (payment.referenceNumber !=
                       null &&
@@ -1224,6 +1495,26 @@ Widget _buildPaymentItem(
                         AppColors.textSecondary,
                   ),
                 ),
+
+              // --------------------------------------------------
+              // NOTES
+              // --------------------------------------------------
+
+              if (payment.notes !=
+                      null &&
+                  payment.notes!
+                      .isNotEmpty)
+                Text(
+                  payment.notes!,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+                ),
             ],
           ),
         ),
@@ -1231,6 +1522,7 @@ Widget _buildPaymentItem(
     ),
   );
 }
+
 IconData _paymentModeIcon(
   PaymentMode mode,
 ) {

@@ -6,6 +6,8 @@ import '../../models/vehicle_model.dart';
 import '../../services/booking_service.dart';
 import 'create_booking_screen.dart';
 import '../../models/customer_model.dart';
+import 'booking_details_screen.dart';
+
 import '../../services/customer_service.dart';
 class CreateBookingScreen extends StatefulWidget {
   final VehicleModel vehicle;
@@ -51,7 +53,7 @@ class _CreateBookingScreenState
 
   final _securityDepositController =
       TextEditingController();
-
+final _rentalAmountController = TextEditingController();
   final _extraKmChargeController =
       TextEditingController(text: '0');
 
@@ -140,7 +142,8 @@ void initState() {
   _securityDepositController.text =
       widget.vehicle.securityDeposit
           .toStringAsFixed(0);
-
+  _rentalAmountController.text =
+      _baseRentalAmount.toStringAsFixed(2);
   _agreementNumberController.text =
       _generateAgreementNumber();
 
@@ -160,7 +163,7 @@ _totalAmountController.dispose();
     _returnLocationController.dispose();
 
     _securityDepositController.dispose();
-
+_rentalAmountController.dispose();
     _extraKmChargeController.dispose();
     _fuelChargeController.dispose();
     _lateReturnChargeController.dispose();
@@ -1274,81 +1277,82 @@ height: 1.4,
         // ----------------------------------------------------
         // RENTAL + SECURITY DEPOSIT
         // ----------------------------------------------------
+// ----------------------------------------------------
+// RENTAL + SECURITY DEPOSIT
+// ----------------------------------------------------
 
-        Row(
-          children: [
-            Expanded(
-              child: _readOnlyMoneyField(
-                label: 'Rental Amount',
-                value: _money(
-                  _baseRentalAmount,
-                ),
-              ),
-            ),
-            const SizedBox(
-              width: AppSpacing.sm,
-            ),
-            Expanded(
-              child: _textField(
-                controller:
-                    _securityDepositController,
-                label: 'Security Deposit',
-                hint: '0',
-                icon:
-                    Icons.lock_outline_rounded,
-                keyboardType:
-                    const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-              ),
-            ),
-          ],
+Row(
+  children: [
+    Expanded(
+      child: _textField(
+        controller: _rentalAmountController,
+        label: 'Rental Amount',
+        hint: '0',
+        icon: Icons.payments_outlined,
+        keyboardType: const TextInputType.numberWithOptions(
+          decimal: true,
         ),
+        requiredField: true,
+        onChanged: (_) {
+          _clearManualTotalAmount();
 
-        const SizedBox(
-          height: AppSpacing.sm,
+          setState(() {});
+        },
+      ),
+    ),
+
+    const SizedBox(
+      width: AppSpacing.sm,
+    ),
+
+    Expanded(
+      child: _textField(
+        controller: _securityDepositController,
+        label: 'Security Deposit',
+        hint: '0',
+        icon: Icons.lock_outline_rounded,
+        keyboardType: const TextInputType.numberWithOptions(
+          decimal: true,
         ),
+        onChanged: (_) {
+          _clearManualTotalAmount();
 
-        // ----------------------------------------------------
-        // FINAL TOTAL
-        // ----------------------------------------------------
+          setState(() {});
+        },
+      ),
+    ),
+  ],
+),
 
-        _textField(
-          controller:
-              _totalAmountController,
-          label: 'Total Amount',
-          hint: _money(
-            _totalAmount,
-          ),
-          icon:
-              Icons.account_balance_wallet_outlined,
-          keyboardType:
-              const TextInputType.numberWithOptions(
-            decimal: true,
-          ),
-          requiredField: true,
-          onChanged: (value) {
-            final text =
-                value.trim();
+const SizedBox(
+  height: AppSpacing.sm,
+),
 
-            final amount =
-                double.tryParse(
-              text,
-            );
+// ----------------------------------------------------
+// TOTAL AMOUNT
+// ----------------------------------------------------
 
-            setState(() {
-              if (text.isEmpty) {
-                _manualTotalAmount =
-                    null;
-              } else if (amount != null &&
-                  amount >= 0) {
-                _manualTotalAmount =
-                    amount;
-              }
-            });
-          },
-        ),
+_textField(
+  controller: _totalAmountController,
+  label: 'Total Amount',
+  hint: '0',
+  icon: Icons.account_balance_wallet_outlined,
+  keyboardType: const TextInputType.numberWithOptions(
+    decimal: true,
+  ),
+  requiredField: true,
+  onChanged: (value) {
+    final amount = double.tryParse(value.trim());
 
+    setState(() {
+      if (value.trim().isEmpty) {
+        _manualTotalAmount = null;
+      } else if (amount != null && amount >= 0) {
+        _manualTotalAmount = amount;
+      }
+    });
+  },
+),
         const SizedBox(
           height: AppSpacing.xs,
         ),
@@ -2467,28 +2471,21 @@ if (customer == null) {
     // --------------------------------------------------------
     // SUCCESS
     // --------------------------------------------------------
+     // --------------------------------------------------------
+// SUCCESS → OPEN BOOKING DETAILS
+// --------------------------------------------------------
 
-    if (!mounted) {
-      return;
-    }
+if (!mounted) {
+  return;
+}
 
-    _showSuccess(
-      'Booking ${booking.bookingNumber} created successfully.',
-    );
-
-    await Future.delayed(
-      const Duration(
-        milliseconds: 700,
-      ),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(context).pop(
-      booking,
-    );
+Navigator.of(context).pushReplacement(
+  MaterialPageRoute(
+    builder: (_) => BookingDetailsScreen(
+      booking: booking,
+    ),
+  ),
+);
   } on BookingConflictException catch (exception) {
     // --------------------------------------------------------
     // VEHICLE BOOKING CONFLICT
@@ -2674,23 +2671,30 @@ if (customer == null) {
         _otherCharges;
   }
 
-  double get _totalAmount {
+double get _totalAmount {
+  final rentalAmount = double.tryParse(
+        _rentalAmountController.text.trim(),
+      ) ??
+      0.0;
+
+  final securityDeposit = double.tryParse(
+        _securityDepositController.text.trim(),
+      ) ??
+      0.0;
+
   final calculatedTotal =
-      _baseRentalAmount +
+      rentalAmount +
+      securityDeposit +
       _additionalCharges +
       _tax -
       _discount;
 
   final safeTotal =
-      calculatedTotal < 0
-          ? 0.0
-          : calculatedTotal;
+      calculatedTotal < 0 ? 0.0 : calculatedTotal;
 
-  _calculatedTotalAmount =
-      safeTotal;
+  _calculatedTotalAmount = safeTotal;
 
-  return _manualTotalAmount ??
-      safeTotal;
+  return _manualTotalAmount ?? safeTotal;
 }
 
   // ============================================================
