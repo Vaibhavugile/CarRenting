@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import 'pickup_screen.dart';
 import 'return_screen.dart';
 import 'package:car_rental/models/payment_model.dart';
+import 'bookings_screen.dart';
 class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
 
@@ -120,6 +121,14 @@ void dispose() {
   _internalNotesController.dispose();
 
   super.dispose();
+}
+void _goToBookingsScreen() {
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(
+      builder: (_) => const BookingsScreen(),
+    ),
+    (route) => false,
+  );
 }
 void _initializeEditControllers() {
   _customerNameController =
@@ -1977,7 +1986,7 @@ Future<void> _handleMainAction() async {
       return;
 
     case BookingStatus.active:
-      // Rental active → directly open ReturnScreen
+      // Rental active → directly oen ReturnScreen
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ReturnScreen(
@@ -2325,7 +2334,19 @@ Future<void> _startRental() async {
       _booking.status,
     );
 
-    return Scaffold(
+    return PopScope(
+  canPop: false,
+  onPopInvokedWithResult: (
+    didPop,
+    result,
+  ) {
+    if (didPop) {
+      return;
+    }
+
+    _goToBookingsScreen();
+  },
+  child: Scaffold(
       backgroundColor:
           AppColors.background,
       appBar:
@@ -2467,6 +2488,7 @@ _buildPaymentHistory(),
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -2485,17 +2507,12 @@ _buildPaymentHistory(),
           Colors.transparent,
       titleSpacing:
           0,
-      leading:
-          IconButton(
-        icon:
-            const Icon(
-          Icons.arrow_back_rounded,
-        ),
-        onPressed:
-            () =>
-                Navigator.of(context)
-                    .pop(),
-      ),
+      leading: IconButton(
+  icon: const Icon(
+    Icons.arrow_back_rounded,
+  ),
+  onPressed: _goToBookingsScreen,
+),
       title:
           const Text(
         'Booking Details',

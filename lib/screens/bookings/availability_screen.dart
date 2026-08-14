@@ -6,6 +6,7 @@ import '../../models/vehicle_model.dart';
 import '../../services/booking_service.dart';
 import '../../app/theme.dart';
 import 'create_booking_screen.dart';
+import 'booking_details_screen.dart';
 class AvailabilityScreen extends StatefulWidget {
   final VehicleModel vehicle;
 
@@ -575,7 +576,99 @@ void initState() {
       ],
     );
   }
+Widget _bookingListTile(
+  BookingModel booking,
+) {
+  return Padding(
+    padding: const EdgeInsets.only(
+      bottom: AppSpacing.md,
+    ),
+    child: Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(
+        AppRadius.lg,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(
+          AppRadius.lg,
+        ),
+        onTap: () {
+          Navigator.pop(context);
 
+          _openBooking(booking);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(
+            AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.danger
+                      .withValues(alpha: 0.08),
+                  borderRadius:
+                      BorderRadius.circular(
+                    AppRadius.md,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.event_busy_rounded,
+                  color: AppColors.danger,
+                  size: 20,
+                ),
+              ),
+
+              const SizedBox(
+                width: AppSpacing.md,
+              ),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Booking #${booking.id}',
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      '${_formatDateTime(booking.pickupDateTime)}'
+                      ' → '
+                      '${_formatDateTime(booking.returnDateTime)}',
+                      style: const TextStyle(
+                        color:
+                            AppColors.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
   // ============================================================
   // CALENDAR
   // ============================================================
@@ -889,7 +982,15 @@ void initState() {
   // ============================================================
   // DAY CELL
   // ============================================================
-
+void _openBooking(BookingModel booking) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => BookingDetailsScreen(
+        booking: booking,
+      ),
+    ),
+  );
+}
   Widget _buildDayCell(
     DateTime date,
   ) {
@@ -936,7 +1037,7 @@ void initState() {
         !_hasMaintenanceConflict(
           date,
         );
-
+final canTapBooking = bookings.isNotEmpty;
     Color background =
         Colors.transparent;
 
@@ -983,13 +1084,11 @@ void initState() {
     }
 
     return GestureDetector(
-      onTap:
-          canSelect
-              ? () =>
-                  _selectDate(
-                    date,
-                  )
-              : null,
+      onTap: canTapBooking
+    ? () => _handleBookedDateTap(bookings)
+    : canSelect
+        ? () => _selectDate(date)
+        : null,
 
       child:
           AnimatedContainer(
@@ -1682,13 +1781,7 @@ Widget _resultCard({
       return;
     }
 
-    if (!vehicle.isActive ||
-        vehicle.status != VehicleStatus.available) {
-      _showError(
-        'This vehicle is currently unavailable for booking.',
-      );
-      return;
-    }
+    
 
     final pickup =
         _combineDateAndTime(
@@ -1860,6 +1953,69 @@ Widget _resultCard({
           null;
     });
   }
+  void _handleBookedDateTap(
+  List<BookingModel> bookings,
+) {
+  if (bookings.length == 1) {
+    _openBooking(bookings.first);
+    return;
+  }
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
+      ),
+    ),
+    builder: (_) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(
+            AppSpacing.xl,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Bookings',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
+              Text(
+                '${bookings.length} booking${bookings.length == 1 ? '' : 's'} on this date',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+
+              const SizedBox(
+                height: AppSpacing.lg,
+              ),
+
+              ...bookings.map(
+                (booking) {
+                  return _bookingListTile(
+                    booking,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
   // ============================================================
   // PICKUP DATE

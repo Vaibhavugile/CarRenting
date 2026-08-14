@@ -98,15 +98,16 @@ static const int defaultPageSize = 50;
   // cancelled, noShow and completed do NOT block availability.
   // ============================================================
 
-  static const List<String>
-      _availabilityBlockingStatuses = [
-    'booking',
-    'pickupPending',
-    'pickup',
-    'active',
-    'returnPending',
-    'return',
-  ];
+  
+     static const List<String> _availabilityBlockingStatuses = [
+  'booking',
+  'pickupPending',
+  'pickup',
+  'active',
+  'returnPending',
+  'returning',
+  'return', // legacy status
+];
 
   // ============================================================
   // CHECK AVAILABILITY
