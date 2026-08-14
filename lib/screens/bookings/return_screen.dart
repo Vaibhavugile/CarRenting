@@ -1,6 +1,12 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:firebase_storage/firebase_storage.dart';
 
 import 'package:car_rental/models/booking_model.dart';
 import 'package:car_rental/services/booking_service.dart';
@@ -54,11 +60,27 @@ class _ReturnScreenState extends State<ReturnScreen> {
 
   FuelLevel? _fuelAtReturn;
 
-  bool _vehicleConditionChecked = false;
-  bool _documentsReturnedChecked = false;
-  bool _finalInspectionChecked = false;
+bool _isSaving = false;
 
-  bool _isSaving = false;
+final ImagePicker _imagePicker =
+    ImagePicker();
+
+final Map<String, File?> _returnImages = {
+  'front': null,
+  'rear': null,
+  'left': null,
+  'right': null,
+  'interior': null,
+  'dashboard': null,
+  'extra': null,
+};
+
+final Map<String, String> _returnImageUrls = {};
+
+String? _uploadingPhotoType;
+
+String _savingMessage =
+    'Complete Booking';
 
   @override
   void initState() {
@@ -71,6 +93,13 @@ class _ReturnScreenState extends State<ReturnScreen> {
 
     _fuelAtReturn =
         _booking.fuelAtReturn;
+        for (final entry
+    in _booking.returnImages.entries) {
+  if (entry.value.isNotEmpty) {
+    _returnImageUrls[entry.key] =
+        entry.value;
+  }
+}
 
     _extraKmController.text =
         _formatInput(_booking.extraKmCharge);
@@ -192,20 +221,15 @@ bool get _canComplete =>
         _paidAmountController.text,
       );
 
-  double get _finalTotal {
-    final total =
-        _booking.baseRentalAmount +
-        _booking.securityDeposit +
-        _extraKmCharge +
-        _fuelCharge +
-        _lateReturnCharge +
-        _damageCharge +
-        _otherCharges -
-        _booking.discount +
-        _booking.tax;
-
-    return total < 0 ? 0 : total;
-  }
+  // ReturnScreen
+double get _finalTotal {
+  return _booking.totalAmount +
+      _extraKmCharge +
+      _fuelCharge +
+      _lateReturnCharge +
+      _damageCharge +
+      _otherCharges;
+}
 
   double get _pendingAmount {
     final pending =
@@ -305,183 +329,451 @@ bool get _canComplete =>
     }
   }
 }
+Future<void> _pickReturnImage(
+  String type,
+) async {
+  if (_isSaving) return;
+
+  final source =
+      await showModalBottomSheet<ImageSource>(
+    context: context,
+    backgroundColor:
+        AppColors.surface,
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding:
+              const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+            children: [
+              const Text(
+                'Add Return Photo',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight:
+                      FontWeight.w800,
+                  color:
+                      AppColors.textPrimary,
+                ),
+              ),
+
+              const SizedBox(
+                height: 14,
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.camera_alt_rounded,
+                ),
+                title: const Text(
+                  'Take Photo',
+                ),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.camera,
+                  );
+                },
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                ),
+                title: const Text(
+                  'Choose from Gallery',
+                ),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.gallery,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  if (source == null) return;
+
+  try {
+    final picked =
+        await _imagePicker.pickImage(
+      source: source,
+      imageQuality: 100,
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _returnImages[type] =
+          File(picked.path);
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    _showError(
+      'Unable to select image.',
+    );
+  }
+}
+Future<Uint8List> _optimizeImage(
+  File file,
+) async {
+  final bytes =
+      await file.readAsBytes();
+
+  final decoded =
+      img.decodeImage(bytes);
+
+  if (decoded == null) {
+    throw Exception(
+      'Unable to process image.',
+    );
+  }
+
+  final oriented =
+      img.bakeOrientation(decoded);
+
+  const maxDimension = 1600;
+
+  img.Image resized =
+      oriented;
+
+  if (oriented.width >
+          maxDimension ||
+      oriented.height >
+          maxDimension) {
+    resized = img.copyResize(
+      oriented,
+      width:
+          oriented.width >=
+                  oriented.height
+              ? maxDimension
+              : null,
+      height:
+          oriented.height >
+                  oriented.width
+              ? maxDimension
+              : null,
+      interpolation:
+          img.Interpolation.average,
+    );
+  }
+
+  int quality = 85;
+
+  Uint8List output =
+      Uint8List.fromList(
+    img.encodeJpg(
+      resized,
+      quality: quality,
+    ),
+  );
+
+  while (output.length >
+          500 * 1024 &&
+      quality > 45) {
+    quality -= 5;
+
+    output =
+        Uint8List.fromList(
+      img.encodeJpg(
+        resized,
+        quality: quality,
+      ),
+    );
+  }
+
+  return output;
+}
+Future<String> _uploadReturnImage(
+  String type,
+  File file,
+) async {
+  final optimized =
+      await _optimizeImage(file);
+
+  final storageRef =
+      FirebaseStorage.instance
+          .ref()
+          .child(
+            'bookings/${_booking.id}/return/$type.jpg',
+          );
+
+  await storageRef.putData(
+    optimized,
+    SettableMetadata(
+      contentType: 'image/jpeg',
+      cacheControl:
+          'public,max-age=31536000',
+    ),
+  );
+
+  return storageRef.getDownloadURL();
+}
+Future<void> _uploadAllReturnImages() async {
+  for (final entry
+      in _returnImages.entries) {
+    final type = entry.key;
+    final file = entry.value;
+
+    if (file == null) continue;
+
+    if (mounted) {
+      setState(() {
+        _uploadingPhotoType =
+            type;
+
+        _savingMessage =
+            'Uploading ${_photoTitle(type)}...';
+      });
+    }
+
+    final url =
+        await _uploadReturnImage(
+      type,
+      file,
+    );
+
+    _returnImageUrls[type] =
+        url;
+  }
+
+  if (mounted) {
+    setState(() {
+      _uploadingPhotoType = null;
+    });
+  }
+}
+String _photoTitle(
+  String type,
+) {
+  switch (type) {
+    case 'front':
+      return 'front photo';
+
+    case 'rear':
+      return 'rear photo';
+
+    case 'left':
+      return 'left-side photo';
+
+    case 'right':
+      return 'right-side photo';
+
+    case 'interior':
+      return 'interior photo';
+
+    case 'dashboard':
+      return 'dashboard photo';
+
+    case 'extra':
+      return 'extra photo';
+
+    default:
+      return 'vehicle photo';
+  }
+}
 
   // ============================================================
   // COMPLETE BOOKING
   // ============================================================
 
-  Future<void> _completeReturn() async {
-if (_isSaving) return;
+Future<void> _completeReturn() async {
+  if (_isSaving) return;
 
-FocusScope.of(context).unfocus();
+  FocusScope.of(context).unfocus();
 
-// ----------------------------------------------------------
-// ENDING KM
-// ----------------------------------------------------------
+  // ==========================================================
+  // ENDING KM
+  // ==========================================================
 
-final endingKm = _endingKm();
+  final endingKm = _endingKm();
 
-if (endingKm == null) {
-_showError(
-'Enter a valid ending KM.',
-);
-return;
-}
+  if (endingKm == null) {
+    _showError(
+      'Enter a valid ending KM.',
+    );
+    return;
+  }
 
-// ----------------------------------------------------------
-// STARTING KM
-//
-// startingKm is nullable in BookingModel, so make sure
-// it exists before comparing it with endingKm.
-// ----------------------------------------------------------
+  // ==========================================================
+  // STARTING KM
+  // ==========================================================
 
-final startingKm = _booking.startingKm;
+  final startingKm =
+      _booking.startingKm;
 
-if (startingKm == null) {
-_showError(
-'Starting KM has not been recorded for this booking.',
-);
-return;
-}
+  if (startingKm == null) {
+    _showError(
+      'Starting KM has not been recorded for this booking.',
+    );
+    return;
+  }
 
-if (endingKm < startingKm) {
-_showError(
-'Ending KM cannot be less than starting KM.',
-);
-return;
-}
+  if (endingKm < startingKm) {
+    _showError(
+      'Ending KM cannot be less than starting KM.',
+    );
+    return;
+  }
 
-// ----------------------------------------------------------
-// FUEL
-// ----------------------------------------------------------
+  // ==========================================================
+  // FUEL
+  // ==========================================================
 
-if (_fuelAtReturn == null) {
-_showError(
-'Select the fuel level at return.',
-);
-return;
-}
+  if (_fuelAtReturn == null) {
+    _showError(
+      'Select the fuel level at return.',
+    );
+    return;
+  }
 
-// ----------------------------------------------------------
-// RETURN INSPECTION CHECKLIST
-// ----------------------------------------------------------
+  // ==========================================================
+  // REQUIRED RETURN PHOTOS
+  // ==========================================================
 
-if (!_vehicleConditionChecked) {
-_showError(
-'Complete the vehicle condition check.',
-);
-return;
-}
+ 
 
-if (!_documentsReturnedChecked) {
-_showError(
-'Confirm that the customer documents and handover items are checked.',
-);
-return;
-}
+  // ==========================================================
+  // PAYMENT
+  // ==========================================================
 
-if (!_finalInspectionChecked) {
-_showError(
-'Complete the final return inspection.',
-);
-return;
-}
+  if (_paidAmount < 0) {
+    _showError(
+      'Paid amount cannot be negative.',
+    );
+    return;
+  }
 
-// ----------------------------------------------------------
-// PAYMENT VALIDATION
-// ----------------------------------------------------------
+  if (_paidAmount > _finalTotal) {
+    _showError(
+      'Paid amount cannot be greater than the final total.',
+    );
+    return;
+  }
 
-if (_paidAmount < 0) {
-_showError(
-'Paid amount cannot be negative.',
-);
-return;
-}
+  // ==========================================================
+  // SAVE
+  // ==========================================================
 
-// Prevent paying more than the final amount.
-if (_paidAmount > _finalTotal) {
-_showError(
-'Paid amount cannot be greater than the final total.',
-);
-return;
-}
+  setState(() {
+    _isSaving = true;
+    _savingMessage =
+        'Preparing return...';
+  });
 
-// ----------------------------------------------------------
-// SAVE
-// ----------------------------------------------------------
+  try {
+    // --------------------------------------------------------
+    // OPTIMIZE + UPLOAD RETURN IMAGES
+    // --------------------------------------------------------
 
-setState(() {
-_isSaving = true;
-});
+    await _uploadAllReturnImages();
 
-try {
-final updated =
-await _bookingService.completeBooking(
-bookingId: _booking.id,
+    if (!mounted) return;
 
+    setState(() {
+      _savingMessage =
+          'Completing booking...';
+    });
 
-  endingKm: endingKm,
+    // --------------------------------------------------------
+    // COMPLETE BOOKING
+    // --------------------------------------------------------
 
-  fuelAtReturn: _fuelAtReturn!,
+    final updated =
+        await _bookingService.completeBooking(
+      bookingId:
+          _booking.id,
 
-  // Return charges
-  extraKmCharge: _extraKmCharge,
-  fuelCharge: _fuelCharge,
-  lateReturnCharge: _lateReturnCharge,
-  damageCharge: _damageCharge,
-  otherCharges: _otherCharges,
+      endingKm:
+          endingKm,
 
-  // Payment
-  paidAmount: _paidAmount,
+      fuelAtReturn:
+          _fuelAtReturn!,
 
-  // Notes
-  internalNotes:
-      _internalNotesController.text.trim().isEmpty
-          ? null
-          : _internalNotesController.text.trim(),
-);
+      // Return charges
+      extraKmCharge:
+          _extraKmCharge,
 
-if (!mounted) return;
+      fuelCharge:
+          _fuelCharge,
 
-setState(() {
-  _booking = updated;
-});
+      lateReturnCharge:
+          _lateReturnCharge,
 
-_showMessage(
-  'Booking completed successfully.',
-);
+      damageCharge:
+          _damageCharge,
 
-await Future.delayed(
-  const Duration(
-    milliseconds: 500,
-  ),
-);
+      otherCharges:
+          _otherCharges,
 
-if (!mounted) return;
+      // Payment
+      paidAmount:
+          _paidAmount,
 
-Navigator.of(context).pop(
-  _booking,
-);
+      // Notes
+      internalNotes:
+          _internalNotesController
+              .text
+              .trim()
+              .isEmpty
+              ? null
+              : _internalNotesController
+                  .text
+                  .trim(),
 
+      // RETURN IMAGES
+      returnImages:
+          _returnImageUrls,
+    );
 
-} catch (e) {
-if (!mounted) return;
+    if (!mounted) return;
 
+    setState(() {
+      _booking = updated;
+      _isSaving = false;
+      _savingMessage =
+          'Complete Booking';
+    });
 
-_showError(
-  _cleanError(
-    e.toString(),
-  ),
-);
+    _showMessage(
+      'Booking completed successfully.',
+    );
 
+    await Future.delayed(
+      const Duration(
+        milliseconds: 500,
+      ),
+    );
 
-} finally {
-if (mounted) {
-setState(() {
-_isSaving = false;
-});
-}
-}
+    if (!mounted) return;
+
+    Navigator.of(context).pop(
+      _booking,
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _isSaving = false;
+      _uploadingPhotoType = null;
+      _savingMessage =
+          'Complete Booking';
+    });
+
+    _showError(
+      _cleanError(
+        e.toString(),
+      ),
+    );
+  }
 }
 
   // ============================================================
@@ -725,10 +1017,10 @@ _isSaving = false;
             const SizedBox(
               height: AppSpacing.lg,
             ),
-            _buildChecklist(
-              enabled:
-                  isEditable,
-            ),
+            _buildReturnPhotos(
+  enabled:
+      isEditable,
+),
             const SizedBox(
               height: AppSpacing.lg,
             ),
@@ -1446,91 +1738,129 @@ final statusText =
   // CHECKLIST
   // ============================================================
 
-  Widget _buildChecklist({
-    required bool enabled,
-  }) {
-    return _sectionCard(
-      title:
-          'Return Inspection',
-      icon:
-          Icons.fact_check_outlined,
-      child:
-          Column(
-        children: [
-          _checkRow(
-            title:
-                'Vehicle condition checked',
-            subtitle:
-                'Exterior and interior condition reviewed after return.',
-            value:
-                _vehicleConditionChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _vehicleConditionChecked =
-                        value;
-                  });
-                },
-          ),
-          const SizedBox(
-            height: 10,
-          ),
-          _checkRow(
-            title:
-                'Documents and items checked',
-            subtitle:
-                'Keys, documents and customer handover items have been checked.',
-            value:
-                _documentsReturnedChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _documentsReturnedChecked =
-                        value;
-                  });
-                },
-          ),
-          const SizedBox(
-            height: 10,
-          ),
-          _checkRow(
-            title:
-                'Final inspection completed',
-            subtitle:
-                'Vehicle is ready to be closed as a completed rental.',
-            value:
-                _finalInspectionChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _finalInspectionChecked =
-                        value;
-                  });
-                },
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _checkRow({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required bool enabled,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      padding:
-          const EdgeInsets.all(
-        12,
-      ),
+Widget _buildReturnPhotos({
+  required bool enabled,
+}) {
+  return _sectionCard(
+    title:
+        'Return Photos',
+    icon:
+        Icons.camera_alt_outlined,
+    child:
+        Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Capture the vehicle condition after return. Front, rear, both sides and interior are required.',
+          style: TextStyle(
+            fontSize: 10,
+            height: 1.4,
+            color:
+                AppColors.textSecondary,
+          ),
+        ),
+
+        const SizedBox(
+          height: 14,
+        ),
+
+        GridView.count(
+          shrinkWrap: true,
+          physics:
+              const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1.15,
+          children: [
+            _returnPhotoTile(
+              type: 'front',
+              title: 'Front',
+              icon: Icons
+                  .directions_car_filled_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'rear',
+              title: 'Rear',
+              icon: Icons
+                  .directions_car_filled_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'left',
+              title: 'Left Side',
+              icon: Icons
+                  .directions_car_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'right',
+              title: 'Right Side',
+              icon: Icons
+                  .directions_car_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'interior',
+              title: 'Interior',
+              icon: Icons
+                  .airline_seat_recline_normal_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'dashboard',
+              title: 'Dashboard',
+              icon: Icons
+                  .dashboard_rounded,
+              enabled: enabled,
+            ),
+
+            _returnPhotoTile(
+              type: 'extra',
+              title: 'Extra',
+              icon: Icons
+                  .add_a_photo_rounded,
+              enabled: enabled,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+Widget _returnPhotoTile({
+  required String type,
+  required String title,
+  required IconData icon,
+  required bool enabled,
+}) {
+  final file =
+      _returnImages[type];
+
+  final existingUrl =
+      _returnImageUrls[type];
+
+  final hasImage =
+      file != null ||
+      (existingUrl != null &&
+          existingUrl.isNotEmpty);
+
+  final isUploading =
+      _uploadingPhotoType == type;
+
+  return GestureDetector(
+    onTap: enabled
+        ? () => _pickReturnImage(type)
+        : null,
+    child: Container(
       decoration:
           BoxDecoration(
         color:
@@ -1541,38 +1871,32 @@ final statusText =
         ),
         border:
             Border.all(
-          color:
-              AppColors.border,
+          color: hasImage
+              ? AppColors.primary
+                  .withValues(
+                  alpha: 0.35,
+                )
+              : AppColors.border,
         ),
       ),
-      child:
-          Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Checkbox(
-            value:
-                value,
-            onChanged:
-                enabled
-                    ? (value) =>
-                        onChanged(
-                      value ?? false,
-                    )
-                    : null,
-          ),
-          const SizedBox(
-            width: 4,
-          ),
-          Expanded(
-            child:
-                Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+      clipBehavior:
+          Clip.antiAlias,
+      child: !hasImage
+          ? Column(
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
               children: [
-                const SizedBox(
-                  height: 3,
+                Icon(
+                  icon,
+                  size: 28,
+                  color:
+                      AppColors.textSecondary,
                 ),
+
+                const SizedBox(
+                  height: 8,
+                ),
+
                 Text(
                   title,
                   style:
@@ -1584,26 +1908,113 @@ final statusText =
                         AppColors.textPrimary,
                   ),
                 ),
+
                 const SizedBox(
-                  height: 3,
+                  height: 4,
                 ),
-                Text(
-                  subtitle,
-                  style:
-                      const TextStyle(
+
+                const Text(
+                  'Tap to add',
+                  style: TextStyle(
                     fontSize: 9,
-                    height: 1.35,
                     color:
                         AppColors.textSecondary,
                   ),
                 ),
               ],
+            )
+          : Stack(
+              fit:
+                  StackFit.expand,
+              children: [
+                if (file != null)
+                  Image.file(
+                    file,
+                    fit:
+                        BoxFit.cover,
+                  )
+                else
+                  Image.network(
+                    existingUrl!,
+                    fit:
+                        BoxFit.cover,
+                  ),
+
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child:
+                      Container(
+                    padding:
+                        const EdgeInsets
+                            .symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration:
+                        BoxDecoration(
+                      color: Colors.black
+                          .withValues(
+                        alpha: 0.65,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        8,
+                      ),
+                    ),
+                    child: Text(
+                      title,
+                      style:
+                          const TextStyle(
+                        color:
+                            Colors.white,
+                        fontSize: 9,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (isUploading)
+                  const Center(
+                    child:
+                        CircularProgressIndicator(
+                      color:
+                          Colors.white,
+                    ),
+                  ),
+
+                if (enabled &&
+                    !isUploading)
+                  Positioned(
+                    top: 7,
+                    right: 7,
+                    child:
+                        Container(
+                      width: 28,
+                      height: 28,
+                      decoration:
+                          const BoxDecoration(
+                        color:
+                            Colors.white,
+                        shape:
+                            BoxShape.circle,
+                      ),
+                      child:
+                          const Icon(
+                        Icons.edit_rounded,
+                        size: 15,
+                        color:
+                            AppColors.primary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
+}
 
   // ============================================================
   // NOTES
@@ -1710,34 +2121,71 @@ Widget _buildBottomAction({
             ),
           ),
           child: _isSaving
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : Row(
-                  mainAxisAlignment:
-                      MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (enabled) ...[
-                      const SizedBox(width: 7),
-                      const Icon(
-                        Icons.arrow_forward_rounded,
-                        size: 18,
-                      ),
-                    ],
-                  ],
-                ),
+    ? Row(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child:
+                CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+
+          const SizedBox(
+            width: 10,
+          ),
+
+          Flexible(
+            child: Text(
+              _savingMessage,
+              maxLines: 1,
+              overflow:
+                  TextOverflow.ellipsis,
+              textAlign:
+                  TextAlign.center,
+              style:
+                  const TextStyle(
+                fontSize: 12,
+                fontWeight:
+                    FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      )
+    : Row(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style:
+                const TextStyle(
+              fontSize: 12,
+              fontWeight:
+                  FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+
+          if (enabled) ...[
+            const SizedBox(
+              width: 7,
+            ),
+
+            const Icon(
+              Icons.arrow_forward_rounded,
+              size: 18,
+              color: Colors.white,
+            ),
+          ],
+        ],
+      ),
         ),
       ),
     ),

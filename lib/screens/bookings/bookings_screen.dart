@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import 'package:car_rental/models/vehicle_model.dart';
 import 'package:car_rental/services/vehicle_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../dashboard/dashboard_screen.dart';
 // Keep your existing theme constants.
 
 
@@ -163,6 +164,14 @@ Future<void> _loadVehicles() async {
 
     _showError(e.toString());
   }
+}
+void _goToDashboard() {
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(
+      builder: (_) => const DashboardScreen(),
+    ),
+    (route) => false,
+  );
 }
   // ============================================================
   // LOAD BOOKINGS
@@ -1715,24 +1724,25 @@ bool _matchesCreatedDate(
   // BUILD
   // ============================================================
 
-  @override
-  Widget build(
-    BuildContext context,
-  ) {
-    return Scaffold(
-      backgroundColor:
-          AppColors.background,
-      appBar:
-          _buildAppBar(),
-      body:
-          RefreshIndicator(
-        onRefresh:
-            _loadBookings,
-        child:
-            _buildBody(),
+ @override
+Widget build(BuildContext context) {
+  return PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) {
+        _goToDashboard();
+      }
+    },
+    child: Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: _buildAppBar(),
+      body: RefreshIndicator(
+        onRefresh: _loadBookings,
+        child: _buildBody(),
       ),
-    );
-  }
+    ),
+  );
+}
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(

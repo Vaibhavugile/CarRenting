@@ -8,6 +8,7 @@ import 'pickup_screen.dart';
 import 'return_screen.dart';
 import 'package:car_rental/models/payment_model.dart';
 import 'bookings_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:car_rental/models/user_model.dart';
 class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
@@ -131,6 +132,55 @@ void _goToBookingsScreen() {
     ),
     (route) => false,
   );
+}
+Future<void> _callCustomer() async {
+  final phone = _booking.customerPhone.trim();
+
+  if (phone.isEmpty) {
+    _showMessage('Customer phone number is not available.');
+    return;
+  }
+
+  final uri = Uri(
+    scheme: 'tel',
+    path: phone,
+  );
+
+  if (await canLaunchUrl(uri)) {
+    await launchUrl(uri);
+  } else {
+    _showMessage('Unable to open phone dialer.');
+  }
+}
+
+Future<void> _whatsappCustomer() async {
+  var phone = _booking.customerPhone.trim();
+
+  if (phone.isEmpty) {
+    _showMessage('Customer phone number is not available.');
+    return;
+  }
+
+  // Remove spaces, +, -, brackets, etc.
+  phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+  // India number if stored as 10 digits
+  if (phone.length == 10) {
+    phone = '91$phone';
+  }
+
+  final uri = Uri.parse(
+    'https://wa.me/$phone',
+  );
+
+  if (await canLaunchUrl(uri)) {
+    await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+  } else {
+    _showMessage('Unable to open WhatsApp.');
+  }
 }
 void _initializeEditControllers() {
   _customerNameController =
@@ -305,6 +355,639 @@ void _initializeEditControllers() {
       }
     }
   }
+  void _showVehicleInspection() {
+  final pickupImages = _booking.pickupImages.values
+      .where(
+        (url) => url.trim().isNotEmpty,
+      )
+      .toList();
+
+  final returnImages = _booking.returnImages.values
+      .where(
+        (url) => url.trim().isNotEmpty,
+      )
+      .toList();
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) {
+      return DraggableScrollableSheet(
+        initialChildSize: 0.88,
+        minChildSize: 0.55,
+        maxChildSize: 0.96,
+        expand: false,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(26),
+              ),
+            ),
+            child: Column(
+              children: [
+                // =====================================================
+                // HANDLE
+                // =====================================================
+
+                const SizedBox(height: 10),
+
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius:
+                        BorderRadius.circular(20),
+                  ),
+                ),
+
+                // =====================================================
+                // HEADER
+                // =====================================================
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    20,
+                    16,
+                    12,
+                    12,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary
+                              .withValues(alpha: 0.08),
+                          borderRadius:
+                              BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.fact_check_outlined,
+                          color: AppColors.primary,
+                          size: 21,
+                        ),
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Vehicle Inspection',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight:
+                                    FontWeight.w900,
+                                color:
+                                    AppColors.textPrimary,
+                              ),
+                            ),
+
+                            const SizedBox(height: 2),
+
+                            Text(
+                              '${_booking.vehicleName} • '
+                              '${_booking.vehicleRegistrationNumber}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight:
+                                    FontWeight.w600,
+                                color:
+                                    AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      IconButton(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(
+                          Icons.close_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Divider(height: 1),
+
+                // =====================================================
+                // CONTENT
+                // =====================================================
+
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(
+                      20,
+                      18,
+                      20,
+                      32,
+                    ),
+                    children: [
+                      // =================================================
+                      // PICKUP INSPECTION
+                      // =================================================
+
+                      _inspectionSection(
+                        title: 'Pickup Inspection',
+                        subtitle:
+                            'Vehicle condition when handed over',
+                        icon: Icons.key_rounded,
+                        km: _booking.startingKm,
+                        fuel: _booking.fuelAtPickup,
+                        images: pickupImages,
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // =================================================
+                      // RETURN INSPECTION
+                      // =================================================
+
+                      _inspectionSection(
+                        title: 'Return Inspection',
+                        subtitle:
+                            'Vehicle condition when returned',
+                        icon:
+                            Icons.assignment_return_outlined,
+                        km: _booking.endingKm,
+                        fuel: _booking.fuelAtReturn,
+                        images: returnImages,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+Widget _inspectionSection({
+  required String title,
+  required String subtitle,
+  required IconData icon,
+  required int? km,
+  required FuelLevel? fuel,
+  required List<String> images,
+}) {
+  final hasInspection =
+      km != null || fuel != null || images.isNotEmpty;
+
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: AppColors.primary
+                    .withValues(alpha: 0.07),
+                borderRadius:
+                    BorderRadius.circular(11),
+              ),
+              child: Icon(
+                icon,
+                size: 19,
+                color: AppColors.primary,
+              ),
+            ),
+
+            const SizedBox(width: 11),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          FontWeight.w900,
+                      color:
+                          AppColors.textPrimary,
+                    ),
+                  ),
+
+                  const SizedBox(height: 2),
+
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color:
+                          AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: hasInspection
+                    ? AppColors.success
+                        .withValues(alpha: 0.08)
+                    : AppColors.background,
+                borderRadius:
+                    BorderRadius.circular(20),
+              ),
+              child: Text(
+                hasInspection
+                    ? 'RECORDED'
+                    : 'NOT RECORDED',
+                style: TextStyle(
+                  fontSize: 7,
+                  fontWeight:
+                      FontWeight.w900,
+                  color: hasInspection
+                      ? AppColors.success
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // =====================================================
+        // KM + FUEL
+        // =====================================================
+
+        Row(
+          children: [
+            Expanded(
+              child: _inspectionInfoBox(
+                icon:
+                    Icons.speed_rounded,
+                label: 'Odometer',
+                value: km == null
+                    ? 'Not recorded'
+                    : '$km KM',
+              ),
+            ),
+
+            const SizedBox(width: 10),
+
+            Expanded(
+              child: _inspectionInfoBox(
+                icon:
+                    Icons.local_gas_station_outlined,
+                label: 'Fuel Level',
+                value:
+                    _fuelLabel(fuel),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 18),
+
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Inspection Photos',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight:
+                      FontWeight.w800,
+                  color:
+                      AppColors.textPrimary,
+                ),
+              ),
+            ),
+
+            if (images.isNotEmpty)
+              Text(
+                '${images.length} photo'
+                '${images.length == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight:
+                      FontWeight.w700,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: 10),
+
+        if (images.isEmpty)
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(
+              vertical: 24,
+              horizontal: 16,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius:
+                  BorderRadius.circular(12),
+            ),
+            child: const Column(
+              children: [
+                Icon(
+                  Icons
+                      .photo_library_outlined,
+                  size: 26,
+                  color:
+                      AppColors.textSecondary,
+                ),
+
+                SizedBox(height: 7),
+
+                Text(
+                  'No inspection photos',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight:
+                        FontWeight.w700,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics:
+                const NeverScrollableScrollPhysics(),
+            itemCount: images.length,
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 1,
+            ),
+            itemBuilder:
+                (context, index) {
+              return _inspectionImage(
+                images[index],
+                index,
+                images,
+              );
+            },
+          ),
+      ],
+    ),
+  );
+}
+Widget _inspectionInfoBox({
+  required IconData icon,
+  required String label,
+  required String value,
+}) {
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.background,
+      borderRadius:
+          BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: AppColors.primary,
+        ),
+
+        const SizedBox(width: 9),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 8,
+                  fontWeight:
+                      FontWeight.w600,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              ),
+
+              const SizedBox(height: 3),
+
+              Text(
+                value,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight:
+                      FontWeight.w800,
+                  color:
+                      AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+Widget _inspectionImage(
+  String imageUrl,
+  int index,
+  List<String> images,
+) {
+  return InkWell(
+    borderRadius:
+        BorderRadius.circular(12),
+    onTap: () {
+      _showInspectionImage(
+        imageUrl,
+      );
+    },
+    child: ClipRRect(
+      borderRadius:
+          BorderRadius.circular(12),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            imageUrl,
+            fit: BoxFit.cover,
+            loadingBuilder: (
+              context,
+              child,
+              progress,
+            ) {
+              if (progress == null) {
+                return child;
+              }
+
+              return Container(
+                color:
+                    AppColors.background,
+                alignment:
+                    Alignment.center,
+                child:
+                    const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child:
+                      CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (
+              context,
+              error,
+              stackTrace,
+            ) {
+              return Container(
+                color:
+                    AppColors.background,
+                alignment:
+                    Alignment.center,
+                child: const Icon(
+                  Icons
+                      .broken_image_outlined,
+                  color:
+                      AppColors.textSecondary,
+                ),
+              );
+            },
+          ),
+
+          Positioned(
+            right: 6,
+            bottom: 6,
+            child: Container(
+              width: 25,
+              height: 25,
+              decoration:
+                  BoxDecoration(
+                color: Colors.black
+                    .withValues(
+                  alpha: 0.55,
+                ),
+                shape:
+                    BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.zoom_in_rounded,
+                size: 15,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+void _showInspectionImage(
+  String imageUrl,
+) {
+  showDialog(
+    context: context,
+    barrierColor:
+        Colors.black.withValues(
+      alpha: 0.92,
+    ),
+    builder: (dialogContext) {
+      return Dialog(
+        backgroundColor:
+            Colors.transparent,
+        insetPadding:
+            const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Center(
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                decoration:
+                    BoxDecoration(
+                  color: Colors.black
+                      .withValues(
+                    alpha: 0.55,
+                  ),
+                  shape:
+                      BoxShape.circle,
+                ),
+                child: IconButton(
+                  onPressed: () {
+                    Navigator.pop(
+                      dialogContext,
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
   Future<void> _loadBookingUserNames() async {
   final userIds = <String>{
     _booking.createdBy,
@@ -3839,12 +4522,22 @@ void _showFullCustomerImage({
           ),
         ),
 
-        _smallActionIcon(
-          icon: Icons.phone_outlined,
-          onTap: () => _showMessage(
-            'Customer call action can be connected here.',
-          ),
-        ),
+        Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    _smallActionIcon(
+      icon: Icons.phone_outlined,
+      onTap: _callCustomer,
+    ),
+
+    const SizedBox(width: 7),
+
+    _smallActionIcon(
+      icon: Icons.chat_rounded,
+      onTap: _whatsappCustomer,
+    ),
+  ],
+),
       ],
     ),
   ),
@@ -5013,59 +5706,104 @@ String _paymentStatusLabel(
   // INSPECTION
   // ============================================================
 
-  Widget _buildInspectionCard() {
-    return _sectionCard(
-      title:
-          'Vehicle Inspection',
-      icon:
-          Icons.speed_rounded,
-      child:
-          Column(
+Widget _buildInspectionCard() {
+  return InkWell(
+    onTap: _showVehicleInspection,
+    borderRadius: BorderRadius.circular(
+      AppRadius.lg,
+    ),
+    child: _sectionCard(
+      title: 'Vehicle Inspection',
+      icon: Icons.speed_rounded,
+      child: Column(
         children: [
           _inspectionRow(
-            icon:
-                Icons.speed_rounded,
-            label:
-                'Starting KM',
-            value:
-                _booking.startingKm == null
-                    ? 'Not recorded'
-                    : '${_booking.startingKm} km',
+            icon: Icons.speed_rounded,
+            label: 'Starting KM',
+            value: _booking.startingKm == null
+                ? 'Not recorded'
+                : '${_booking.startingKm} km',
           ),
+
           _inspectionRow(
-            icon:
-                Icons.flag_rounded,
-            label:
-                'Ending KM',
-            value:
-                _booking.endingKm == null
-                    ? 'Not recorded'
-                    : '${_booking.endingKm} km',
+            icon: Icons.flag_rounded,
+            label: 'Ending KM',
+            value: _booking.endingKm == null
+                ? 'Not recorded'
+                : '${_booking.endingKm} km',
           ),
+
           _inspectionRow(
             icon:
                 Icons.local_gas_station_outlined,
-            label:
-                'Fuel at Pickup',
-            value:
-                _fuelLabel(
+            label: 'Fuel at Pickup',
+            value: _fuelLabel(
               _booking.fuelAtPickup,
             ),
           ),
+
           _inspectionRow(
             icon:
                 Icons.local_gas_station_rounded,
-            label:
-                'Fuel at Return',
-            value:
-                _fuelLabel(
+            label: 'Fuel at Return',
+            value: _fuelLabel(
               _booking.fuelAtReturn,
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // =====================================================
+          // VIEW INSPECTION
+          // =====================================================
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(
+                alpha: 0.06,
+              ),
+              borderRadius:
+                  BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.photo_library_outlined,
+                  size: 17,
+                  color: AppColors.primary,
+                ),
+
+                const SizedBox(width: 8),
+
+                const Expanded(
+                  child: Text(
+                    'View inspection photos & details',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 13,
+                  color: AppColors.primary,
+                ),
+              ],
             ),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _inspectionRow({
     required IconData icon,

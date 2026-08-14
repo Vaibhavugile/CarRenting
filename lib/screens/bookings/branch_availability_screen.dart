@@ -20,7 +20,10 @@ class _BranchAvailabilityScreenState
   // ============================================================
   // RENTAL PERIOD
   // ============================================================
+final TextEditingController _vehicleSearchController =
+    TextEditingController();
 
+String _vehicleSearchQuery = '';
   DateTime? _pickupDate;
   DateTime? _returnDate;
 
@@ -49,7 +52,67 @@ class _BranchAvailabilityScreenState
   // ============================================================
   // BUILD
   // ============================================================
+@override
+void dispose() {
+  _vehicleSearchController.dispose();
+  super.dispose();
+}
+Widget _buildVehicleSearchBar() {
+  return Container(
+    height: 50,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(
+        AppRadius.lg,
+      ),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+      boxShadow: AppShadows.card,
+    ),
+    child: TextField(
+      controller: _vehicleSearchController,
+      onChanged: (value) {
+        setState(() {
+          _vehicleSearchQuery = value.trim().toLowerCase();
+        });
+      },
+      decoration: InputDecoration(
+        hintText: 'Search vehicle or registration...',
+        hintStyle: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 12,
+        ),
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: AppColors.primary,
+          size: 20,
+        ),
+        suffixIcon: _vehicleSearchQuery.isNotEmpty
+            ? IconButton(
+                onPressed: () {
+                  _vehicleSearchController.clear();
 
+                  setState(() {
+                    _vehicleSearchQuery = '';
+                  });
+                },
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+              )
+            : null,
+        border: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 15,
+        ),
+      ),
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -833,84 +896,166 @@ class _BranchAvailabilityScreenState
   // ============================================================
 
   Widget _buildAvailableVehicles() {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+  final filteredVehicles = _availableVehicles.where((vehicle) {
+    if (_vehicleSearchQuery.isEmpty) {
+      return true;
+    }
+
+    final vehicleName = _vehicleName(vehicle).toLowerCase();
+
+    final registration =
+        vehicle.registrationNumber.toLowerCase();
+
+    final make = vehicle.make.toLowerCase();
+    final model = vehicle.model.toLowerCase();
+    final variant = vehicle.variant.toLowerCase();
+
+    return vehicleName.contains(_vehicleSearchQuery) ||
+        registration.contains(_vehicleSearchQuery) ||
+        make.contains(_vehicleSearchQuery) ||
+        model.contains(_vehicleSearchQuery) ||
+        variant.contains(_vehicleSearchQuery);
+  }).toList();
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _buildVehicleSearchBar(),
+
+      const SizedBox(
+        height: AppSpacing.lg,
+      ),
+
+      Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Available Vehicles',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  _vehicleSearchQuery.isEmpty
+                      ? 'Available for your selected rental period'
+                      : '${filteredVehicles.length} vehicle${filteredVehicles.length == 1 ? '' : 's'} found',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(
+                alpha: 0.08,
+              ),
+              borderRadius: BorderRadius.circular(
+                AppRadius.pill,
+              ),
+            ),
+            child: Text(
+              '${filteredVehicles.length}',
+              style: const TextStyle(
+                color: AppColors.success,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+
+      const SizedBox(
+        height: AppSpacing.lg,
+      ),
+
+      if (filteredVehicles.isEmpty)
+        _buildNoVehicleSearchResult()
+      else
+        ...filteredVehicles.map(
+          _buildVehicleCard,
+        ),
+    ],
+  );
+}
+Widget _buildNoVehicleSearchResult() {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(
+      AppSpacing.xl,
+    ),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(
+        AppRadius.xl,
+      ),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Available Vehicles',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight:
-                          FontWeight.w800,
-                    ),
-                  ),
-
-                  const SizedBox(
-                    height: 4,
-                  ),
-
-                  Text(
-                    'Available for your selected rental period',
-                    style: const TextStyle(
-                      color:
-                          AppColors.textSecondary,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(
+              alpha: 0.07,
             ),
-
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal:
-                    AppSpacing.md,
-                vertical: 8,
-              ),
-              decoration: BoxDecoration(
-                color:
-                    AppColors.success
-                        .withValues(
-                  alpha: 0.08,
-                ),
-                borderRadius:
-                    BorderRadius.circular(
-                  AppRadius.pill,
-                ),
-              ),
-              child: Text(
-                '${_availableVehicles.length}',
-                style: const TextStyle(
-                  color:
-                      AppColors.success,
-                  fontSize: 12,
-                  fontWeight:
-                      FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.search_off_rounded,
+            color: AppColors.primary,
+            size: 27,
+          ),
         ),
 
         const SizedBox(
-          height: AppSpacing.lg,
+          height: AppSpacing.md,
         ),
 
-        ..._availableVehicles.map(
-          _buildVehicleCard,
+        const Text(
+          'No vehicles found',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+
+        const SizedBox(
+          height: 5,
+        ),
+
+        Text(
+          'No available vehicle matches '
+          '"$_vehicleSearchQuery".',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 11,
+          ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   // ============================================================
   // VEHICLE CARD

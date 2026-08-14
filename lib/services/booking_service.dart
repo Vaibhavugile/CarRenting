@@ -1590,6 +1590,23 @@ Future<BookingModel> startPickup({
   required String bookingId,
   required int startingKm,
   required FuelLevel fuelAtPickup,
+
+  // ----------------------------------------------------------
+  // PICKUP INSPECTION IMAGES
+  //
+  // Example:
+  // {
+  //   'front': 'https://...',
+  //   'back': 'https://...',
+  //   'left': 'https://...',
+  //   'right': 'https://...',
+  //   'dashboard': 'https://...',
+  // }
+  //
+  // Images should already be uploaded to Firebase Storage
+  // before calling this method.
+  // ----------------------------------------------------------
+  Map<String, String> pickupImages = const {},
 }) async {
   // ==========================================================
   // AUTHENTICATION
@@ -1658,6 +1675,24 @@ Future<BookingModel> startPickup({
   }
 
   // ==========================================================
+  // PREPARE PICKUP IMAGES
+  //
+  // If new images were provided, save them.
+  //
+  // If no new images were provided, preserve any existing
+  // pickup images already stored on the booking.
+  // ==========================================================
+
+  final Map<String, String> finalPickupImages =
+      pickupImages.isNotEmpty
+          ? Map<String, String>.from(
+              pickupImages,
+            )
+          : Map<String, String>.from(
+              booking.pickupImages ?? {},
+            );
+
+  // ==========================================================
   // UPDATE BOOKING
   //
   // booking → pickup
@@ -1677,6 +1712,13 @@ Future<BookingModel> startPickup({
       fuelAtPickup,
     ),
 
+    // --------------------------------------------------------
+    // PICKUP INSPECTION IMAGES
+    // --------------------------------------------------------
+
+    'pickupImages':
+        finalPickupImages,
+
     'updatedAt':
         FieldValue.serverTimestamp(),
   });
@@ -1694,6 +1736,9 @@ Future<BookingModel> startPickup({
 
     fuelAtPickup:
         fuelAtPickup,
+
+    pickupImages:
+        finalPickupImages,
 
     updatedAt:
         DateTime.now(),
@@ -2583,289 +2628,449 @@ Future<BookingModel> updateBooking({
   // rented → available
   // ============================================================
 
-  Future<BookingModel> completeBooking({
-    required String bookingId,
-    required int endingKm,
-    required FuelLevel fuelAtReturn,
-    double? extraKmCharge,
-    double? fuelCharge,
-    double? lateReturnCharge,
-    double? damageCharge,
-    double? otherCharges,
-    double? paidAmount,
-    String? customerSignatureUrl,
-    String? staffSignatureUrl,
-    String? internalNotes,
-  }) async {
-    final user = currentUser;
+ Future<BookingModel> completeBooking({
+  required String bookingId,
+  required int endingKm,
+  required FuelLevel fuelAtReturn,
 
-    if (user == null) {
-      throw Exception(
-        'You must be logged in.',
-      );
-    }
+  // ==========================================================
+  // RETURN INSPECTION IMAGES
+  //
+  // Example:
+  // {
+  //   'front': 'https://...',
+  //   'rear': 'https://...',
+  //   'left': 'https://...',
+  //   'right': 'https://...',
+  //   'interior': 'https://...',
+  //   'extra': 'https://...',
+  // }
+  //
+  // Images should already be optimized and uploaded to
+  // Firebase Storage before this method is called.
+  // ==========================================================
 
-    final bookingRef =
-        _bookings.doc(bookingId);
+  Map<String, String> returnImages = const {},
 
-    final bookingSnapshot =
-        await bookingRef.get();
+  double? extraKmCharge,
+  double? fuelCharge,
+  double? lateReturnCharge,
+  double? damageCharge,
+  double? otherCharges,
+  double? paidAmount,
+  String? customerSignatureUrl,
+  String? staffSignatureUrl,
+  String? internalNotes,
+}) async {
+  // ==========================================================
+  // AUTHENTICATION
+  // ==========================================================
 
-    if (!bookingSnapshot.exists) {
-      throw Exception(
-        'Booking not found.',
-      );
-    }
+  final user = currentUser;
 
-    final booking =
-        BookingModel.fromFirestore(
-      bookingSnapshot,
+  if (user == null) {
+    throw Exception(
+      'You must be logged in.',
     );
+  }
 
-    if (booking.status !=
-        BookingStatus.returning) {
-      throw Exception(
-        'Return processing must be started before completing the booking.',
-      );
-    }
+  // ==========================================================
+  // GET BOOKING
+  // ==========================================================
 
-    if (booking.startingKm == null) {
-      throw Exception(
-        'Starting KM was not recorded during pickup.',
-      );
-    }
+  final bookingRef =
+      _bookings.doc(bookingId);
 
-    if (endingKm < booking.startingKm!) {
-      throw Exception(
-        'Ending KM cannot be less than starting KM.',
-      );
-    }
+  final bookingSnapshot =
+      await bookingRef.get();
 
-    final finalExtraKmCharge =
-        extraKmCharge ??
-            booking.extraKmCharge;
-
-    final finalFuelCharge =
-        fuelCharge ??
-            booking.fuelCharge;
-
-    final finalLateReturnCharge =
-        lateReturnCharge ??
-            booking.lateReturnCharge;
-
-    final finalDamageCharge =
-        damageCharge ??
-            booking.damageCharge;
-
-    final finalOtherCharges =
-        otherCharges ??
-            booking.otherCharges;
-
-    final finalPaidAmount =
-        paidAmount ??
-            booking.paidAmount;
-
-    final finalTotalAmount =
-        booking.baseRentalAmount +
-        booking.securityDeposit +
-        finalExtraKmCharge +
-        finalFuelCharge +
-        finalLateReturnCharge +
-        finalDamageCharge +
-        finalOtherCharges -
-        booking.discount +
-        booking.tax;
-
-    final finalPendingAmount =
-        _calculatePendingAmount(
-      totalAmount:
-          finalTotalAmount,
-      paidAmount:
-          finalPaidAmount,
+  if (!bookingSnapshot.exists) {
+    throw Exception(
+      'Booking not found.',
     );
+  }
 
-    final finalPaymentStatus =
-        _calculatePaymentStatus(
-      totalAmount:
-          finalTotalAmount,
-      paidAmount:
-          finalPaidAmount,
+  final booking =
+      BookingModel.fromFirestore(
+    bookingSnapshot,
+  );
+
+  // ==========================================================
+  // VALIDATE BOOKING STATUS
+  //
+  // returning
+  //     ↓
+  // completed
+  // ==========================================================
+
+  if (booking.status !=
+      BookingStatus.returning) {
+    throw Exception(
+      'Return processing must be started before completing the booking.',
     );
+  }
 
-    final now =
-        DateTime.now();
+  // ==========================================================
+  // VALIDATE STARTING KM
+  // ==========================================================
 
-    final batch =
-        _firestore.batch();
-
-    // ----------------------------------------------------------
-    // BOOKING
-    // ----------------------------------------------------------
-
-    batch.update(
-      bookingRef,
-      {
-        'status':
-           BookingModel.statusToString(
-          BookingStatus.completed,
-        ),
-
-        'endingKm':
-            endingKm,
-
-        'fuelAtReturn':
-            BookingModel.fuelToString(
-          fuelAtReturn,
-        ),
-
-        'extraKmCharge':
-            finalExtraKmCharge,
-
-        'fuelCharge':
-            finalFuelCharge,
-
-        'lateReturnCharge':
-            finalLateReturnCharge,
-
-        'damageCharge':
-            finalDamageCharge,
-
-        'otherCharges':
-            finalOtherCharges,
-
-        'totalAmount':
-            finalTotalAmount,
-
-        'paidAmount':
-            finalPaidAmount,
-
-        'pendingAmount':
-            finalPendingAmount,
-
-        'paymentStatus':
-            BookingModel.paymentStatusToString(
-          finalPaymentStatus,
-        ),
-
-        'customerSignatureUrl':
-            customerSignatureUrl ??
-                booking.customerSignatureUrl,
-
-        'staffSignatureUrl':
-            staffSignatureUrl ??
-                booking.staffSignatureUrl,
-
-        'completedBy':
-            user.uid,
-
-        'completedAt':
-            Timestamp.fromDate(now),
-
-        'internalNotes':
-            internalNotes ??
-                booking.internalNotes,
-
-        'updatedAt':
-            Timestamp.fromDate(now),
-      },
+  if (booking.startingKm == null) {
+    throw Exception(
+      'Starting KM was not recorded during pickup.',
     );
+  }
 
-    // ----------------------------------------------------------
-    // VEHICLE
-    //
-    // Rental is now finished.
-    // Vehicle becomes available again.
-    // ----------------------------------------------------------
+  // ==========================================================
+  // VALIDATE ENDING KM
+  // ==========================================================
 
-    final vehicleRef =
-        _vehicles.doc(
-      booking.vehicleId,
+  if (endingKm < booking.startingKm!) {
+    throw Exception(
+      'Ending KM cannot be less than starting KM.',
     );
+  }
 
-    batch.update(
-      vehicleRef,
-      {
-        'status':
-            'available',
+  // ==========================================================
+  // RETURN IMAGES
+  //
+  // If new images were supplied, use them.
+  //
+  // Otherwise preserve any existing return images.
+  // ==========================================================
 
-        'currentBookingId':
-            null,
+  final Map<String, String> finalReturnImages =
+      returnImages.isNotEmpty
+          ? Map<String, String>.from(
+              returnImages,
+            )
+          : Map<String, String>.from(
+              booking.returnImages,
+            );
 
-        'nextBookingStartAt':
-            null,
+  // ==========================================================
+  // FINAL CHARGES
+  // ==========================================================
 
-        'nextBookingEndAt':
-            null,
+  final finalExtraKmCharge =
+      extraKmCharge ??
+          booking.extraKmCharge;
 
-        'currentKm':
-            endingKm,
+  final finalFuelCharge =
+      fuelCharge ??
+          booking.fuelCharge;
 
-        'updatedAt':
-            Timestamp.fromDate(now),
-      },
-    );
+  final finalLateReturnCharge =
+      lateReturnCharge ??
+          booking.lateReturnCharge;
 
-    await batch.commit();
+  final finalDamageCharge =
+      damageCharge ??
+          booking.damageCharge;
 
-    return booking.copyWith(
-      status:
-          BookingStatus.completed,
+  final finalOtherCharges =
+      otherCharges ??
+          booking.otherCharges;
 
-      endingKm:
+  final finalPaidAmount =
+      paidAmount ??
+          booking.paidAmount;
+
+  // ==========================================================
+  // FINAL TOTAL
+  // ==========================================================
+
+ final finalTotalAmount =
+    booking.totalAmount +
+    finalExtraKmCharge +
+    finalFuelCharge +
+    finalLateReturnCharge +
+    finalDamageCharge +
+    finalOtherCharges;
+
+  // ==========================================================
+  // FINAL PENDING AMOUNT
+  // ==========================================================
+
+  final finalPendingAmount =
+      _calculatePendingAmount(
+    totalAmount:
+        finalTotalAmount,
+    paidAmount:
+        finalPaidAmount,
+  );
+
+  // ==========================================================
+  // FINAL PAYMENT STATUS
+  // ==========================================================
+
+  final finalPaymentStatus =
+      _calculatePaymentStatus(
+    totalAmount:
+        finalTotalAmount,
+    paidAmount:
+        finalPaidAmount,
+  );
+
+  // ==========================================================
+  // TIMESTAMP
+  // ==========================================================
+
+  final now =
+      DateTime.now();
+
+  // ==========================================================
+  // FIRESTORE BATCH
+  // ==========================================================
+
+  final batch =
+      _firestore.batch();
+
+  // ==========================================================
+  // UPDATE BOOKING
+  // ==========================================================
+
+  batch.update(
+    bookingRef,
+    {
+      // ------------------------------------------------------
+      // STATUS
+      // ------------------------------------------------------
+
+      'status':
+          BookingModel.statusToString(
+        BookingStatus.completed,
+      ),
+
+      // ------------------------------------------------------
+      // RETURN INSPECTION
+      // ------------------------------------------------------
+
+      'endingKm':
           endingKm,
 
-      fuelAtReturn:
-          fuelAtReturn,
+      'fuelAtReturn':
+          BookingModel.fuelToString(
+        fuelAtReturn,
+      ),
 
-      extraKmCharge:
+      'returnImages':
+          finalReturnImages,
+
+      // ------------------------------------------------------
+      // CHARGES
+      // ------------------------------------------------------
+
+      'extraKmCharge':
           finalExtraKmCharge,
 
-      fuelCharge:
+      'fuelCharge':
           finalFuelCharge,
 
-      lateReturnCharge:
+      'lateReturnCharge':
           finalLateReturnCharge,
 
-      damageCharge:
+      'damageCharge':
           finalDamageCharge,
 
-      otherCharges:
+      'otherCharges':
           finalOtherCharges,
 
-      totalAmount:
+      // ------------------------------------------------------
+      // PAYMENT
+      // ------------------------------------------------------
+
+      'totalAmount':
           finalTotalAmount,
 
-      paidAmount:
+      'paidAmount':
           finalPaidAmount,
 
-      pendingAmount:
+      'pendingAmount':
           finalPendingAmount,
 
-      paymentStatus:
-          finalPaymentStatus,
+      'paymentStatus':
+          BookingModel.paymentStatusToString(
+        finalPaymentStatus,
+      ),
 
-      customerSignatureUrl:
+      // ------------------------------------------------------
+      // SIGNATURES
+      // ------------------------------------------------------
+
+      'customerSignatureUrl':
           customerSignatureUrl ??
               booking.customerSignatureUrl,
 
-      staffSignatureUrl:
+      'staffSignatureUrl':
           staffSignatureUrl ??
               booking.staffSignatureUrl,
 
-      completedBy:
+      // ------------------------------------------------------
+      // AUDIT
+      // ------------------------------------------------------
+
+      'completedBy':
           user.uid,
 
-      completedAt:
-          now,
+      'completedAt':
+          Timestamp.fromDate(now),
 
-      internalNotes:
+      // ------------------------------------------------------
+      // NOTES
+      // ------------------------------------------------------
+
+      'internalNotes':
           internalNotes ??
               booking.internalNotes,
 
-      updatedAt:
-          now,
-    );
-  }
+      // ------------------------------------------------------
+      // UPDATED
+      // ------------------------------------------------------
+
+      'updatedAt':
+          Timestamp.fromDate(now),
+    },
+  );
+
+  // ==========================================================
+  // VEHICLE
+  //
+  // Rental is now finished.
+  // Vehicle becomes available again.
+  // ==========================================================
+
+  final vehicleRef =
+      _vehicles.doc(
+    booking.vehicleId,
+  );
+
+  batch.update(
+    vehicleRef,
+    {
+      'status':
+          'available',
+
+      'currentBookingId':
+          null,
+
+      'nextBookingStartAt':
+          null,
+
+      'nextBookingEndAt':
+          null,
+
+      'currentKm':
+          endingKm,
+
+      'updatedAt':
+          Timestamp.fromDate(now),
+    },
+  );
+
+  // ==========================================================
+  // COMMIT ALL CHANGES
+  // ==========================================================
+
+  await batch.commit();
+
+  // ==========================================================
+  // RETURN UPDATED BOOKING
+  // ==========================================================
+
+  return booking.copyWith(
+    // --------------------------------------------------------
+    // STATUS
+    // --------------------------------------------------------
+
+    status:
+        BookingStatus.completed,
+
+    // --------------------------------------------------------
+    // RETURN INSPECTION
+    // --------------------------------------------------------
+
+    endingKm:
+        endingKm,
+
+    fuelAtReturn:
+        fuelAtReturn,
+
+    returnImages:
+        finalReturnImages,
+
+    // --------------------------------------------------------
+    // CHARGES
+    // --------------------------------------------------------
+
+    extraKmCharge:
+        finalExtraKmCharge,
+
+    fuelCharge:
+        finalFuelCharge,
+
+    lateReturnCharge:
+        finalLateReturnCharge,
+
+    damageCharge:
+        finalDamageCharge,
+
+    otherCharges:
+        finalOtherCharges,
+
+    // --------------------------------------------------------
+    // PAYMENT
+    // --------------------------------------------------------
+
+    totalAmount:
+        finalTotalAmount,
+
+    paidAmount:
+        finalPaidAmount,
+
+    pendingAmount:
+        finalPendingAmount,
+
+    paymentStatus:
+        finalPaymentStatus,
+
+    // --------------------------------------------------------
+    // SIGNATURES
+    // --------------------------------------------------------
+
+    customerSignatureUrl:
+        customerSignatureUrl ??
+            booking.customerSignatureUrl,
+
+    staffSignatureUrl:
+        staffSignatureUrl ??
+            booking.staffSignatureUrl,
+
+    // --------------------------------------------------------
+    // AUDIT
+    // --------------------------------------------------------
+
+    completedBy:
+        user.uid,
+
+    completedAt:
+        now,
+
+    // --------------------------------------------------------
+    // NOTES
+    // --------------------------------------------------------
+
+    internalNotes:
+        internalNotes ??
+            booking.internalNotes,
+
+    // --------------------------------------------------------
+    // UPDATED
+    // --------------------------------------------------------
+
+    updatedAt:
+        now,
+  );
+}
 
   // ============================================================
   // CANCEL BOOKING

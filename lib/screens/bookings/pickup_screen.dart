@@ -1,10 +1,15 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:firebase_storage/firebase_storage.dart';
 
 import 'package:car_rental/models/booking_model.dart';
 import 'package:car_rental/services/booking_service.dart';
 import '../../app/theme.dart';
-
 class PickupScreen extends StatefulWidget {
   final BookingModel booking;
 
@@ -24,29 +29,56 @@ class _PickupScreenState
       BookingService.instance;
 
   final TextEditingController _startingKmController =
-      TextEditingController();
+    TextEditingController();
 
-  late BookingModel _booking;
+late BookingModel _booking;
 
-  FuelLevel _fuelAtPickup =
-      FuelLevel.full;
+FuelLevel _fuelAtPickup =
+    FuelLevel.full;
 
-  bool _conditionChecked = false;
-  bool _customerDocumentsChecked = false;
-  bool _agreementChecked = false;
-  bool _isSaving = false;
+bool _isSaving = false;
 
-  @override
-  void initState() {
-    super.initState();
+final ImagePicker _imagePicker =
+    ImagePicker();
 
-    _booking = widget.booking;
+final Map<String, File?> _pickupImages = {
+  'front': null,
+  'rear': null,
+  'left': null,
+  'right': null,
+  'interior': null,
+  'extra': null,
+};
 
-    // If pickup data already exists, show it as the current value.
-    _startingKmController.text =
-        _booking.startingKm.toString();
-    FuelLevel? _fuelAtPickup = _booking.fuelAtPickup;
+final Map<String, String> _pickupImageUrls = {};
+
+String? _uploadingPhotoType;
+
+String _savingMessage =
+    'Confirm Pickup';
+
+ @override
+void initState() {
+  super.initState();
+
+  _booking = widget.booking;
+
+  _startingKmController.text =
+      _booking.startingKm?.toString() ?? '';
+
+  _fuelAtPickup =
+      _booking.fuelAtPickup ??
+          FuelLevel.full;
+
+  // Existing uploaded pickup images
+  for (final entry
+      in _booking.pickupImages.entries) {
+    if (entry.value.isNotEmpty) {
+      _pickupImageUrls[entry.key] =
+          entry.value;
+    }
   }
+}
 
   @override
   void dispose() {
@@ -70,90 +102,351 @@ bool get _isPickupRecorded =>
   
 
   Future<void> _startPickup() async {
-    if (_isSaving) return;
+  if (_isSaving) return;
 
-    FocusScope.of(context).unfocus();
+  FocusScope.of(context).unfocus();
 
-    final km =
-        int.tryParse(
-      _startingKmController.text.trim(),
+  final km =
+      int.tryParse(
+    _startingKmController.text.trim(),
+  );
+
+  if (km == null) {
+    _showError(
+      'Enter a valid starting KM.',
     );
+    return;
+  }
 
-    if (km == null) {
-      _showError(
-        'Enter a valid starting KM.',
-      );
-      return;
-    }
+  if (km < 0) {
+    _showError(
+      'Starting KM cannot be negative.',
+    );
+    return;
+  }
 
-    if (km < 0) {
-      _showError(
-        'Starting KM cannot be negative.',
-      );
-      return;
-    }
+  // ==========================================================
+  // REQUIRED PHOTOS
+  // ==========================================================
 
-    if (!_conditionChecked) {
-      _showError(
-        'Confirm that the vehicle condition has been checked.',
-      );
-      return;
-    }
+  
 
-    if (!_customerDocumentsChecked) {
-      _showError(
-        'Confirm that the customer documents have been checked.',
-      );
-      return;
-    }
+  setState(() {
+    _isSaving = true;
+    _savingMessage =
+        'Preparing pickup...';
+  });
 
-    if (!_agreementChecked) {
-      _showError(
-        'Confirm that the rental agreement and handover details are ready.',
-      );
-      return;
-    }
+  try {
+    // ========================================================
+    // UPLOAD + OPTIMIZE IMAGES
+    // ========================================================
+
+    await _uploadAllPickupImages();
+
+    if (!mounted) return;
 
     setState(() {
-      _isSaving = true;
+      _savingMessage =
+          'Recording pickup...';
     });
 
-    try {
-      final updated =
-          await _bookingService.startPickup(
-        bookingId:
-            _booking.id,
-        startingKm:
-            km,
-        fuelAtPickup:
-            _fuelAtPickup,
-      );
+    // ========================================================
+    // START PICKUP
+    // ========================================================
 
-      if (!mounted) return;
+    final updated =
+        await _bookingService.startPickup(
+      bookingId:
+          _booking.id,
 
-      setState(() {
-        _booking = updated;
-      });
+      startingKm:
+          km,
 
-      _showMessage(
-        'Pickup recorded successfully.',
-      );
-    } catch (e) {
-      if (!mounted) return;
+      fuelAtPickup:
+          _fuelAtPickup,
 
-      _showError(
-        _cleanError(
-          e.toString(),
+      pickupImages:
+          _pickupImageUrls,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _booking = updated;
+      _isSaving = false;
+      _savingMessage =
+          'Confirm Pickup';
+    });
+
+    _showMessage(
+      'Pickup recorded successfully.',
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _isSaving = false;
+      _uploadingPhotoType = null;
+      _savingMessage =
+          'Confirm Pickup';
+    });
+
+    _showError(
+      _cleanError(
+        e.toString(),
+      ),
+    );
+  }
+}
+  Future<void> _pickPickupImage(
+  String type,
+) async {
+  if (_isSaving) return;
+
+  final source =
+      await showModalBottomSheet<ImageSource>(
+    context: context,
+    backgroundColor:
+        AppColors.surface,
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding:
+              const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+            children: [
+              const Text(
+                'Add Vehicle Photo',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight:
+                      FontWeight.w800,
+                  color:
+                      AppColors.textPrimary,
+                ),
+              ),
+
+              const SizedBox(
+                height: 14,
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.camera_alt_rounded,
+                ),
+                title: const Text(
+                  'Take Photo',
+                ),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.camera,
+                  );
+                },
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                ),
+                title: const Text(
+                  'Choose from Gallery',
+                ),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.gallery,
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
-    }
+    },
+  );
+
+  if (source == null) return;
+
+  try {
+    final picked =
+        await _imagePicker.pickImage(
+      source: source,
+      imageQuality: 100,
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _pickupImages[type] =
+          File(picked.path);
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    _showError(
+      'Unable to select image.',
+    );
   }
+}
+Future<Uint8List> _optimizeImage(
+  File file,
+) async {
+  final bytes =
+      await file.readAsBytes();
+
+  final decoded =
+      img.decodeImage(bytes);
+
+  if (decoded == null) {
+    throw Exception(
+      'Unable to process image.',
+    );
+  }
+
+  final oriented =
+      img.bakeOrientation(decoded);
+
+  const maxDimension = 1600;
+
+  img.Image resized =
+      oriented;
+
+  if (oriented.width >
+          maxDimension ||
+      oriented.height >
+          maxDimension) {
+    resized = img.copyResize(
+      oriented,
+      width:
+          oriented.width >=
+                  oriented.height
+              ? maxDimension
+              : null,
+      height:
+          oriented.height >
+                  oriented.width
+              ? maxDimension
+              : null,
+      interpolation:
+          img.Interpolation.average,
+    );
+  }
+
+  int quality = 85;
+
+  Uint8List output =
+      Uint8List.fromList(
+    img.encodeJpg(
+      resized,
+      quality: quality,
+    ),
+  );
+
+  // Keep reducing until <= 500 KB
+  while (output.length >
+          500 * 1024 &&
+      quality > 45) {
+    quality -= 5;
+
+    output =
+        Uint8List.fromList(
+      img.encodeJpg(
+        resized,
+        quality: quality,
+      ),
+    );
+  }
+
+  return output;
+}
+Future<String> _uploadPickupImage(
+  String type,
+  File file,
+) async {
+  final optimized =
+      await _optimizeImage(file);
+
+  final storageRef =
+      FirebaseStorage.instance
+          .ref()
+          .child(
+            'bookings/${_booking.id}/pickup/$type.jpg',
+          );
+
+  await storageRef.putData(
+    optimized,
+    SettableMetadata(
+      contentType: 'image/jpeg',
+      cacheControl:
+          'public,max-age=31536000',
+    ),
+  );
+
+  return storageRef.getDownloadURL();
+}
+Future<void> _uploadAllPickupImages() async {
+  for (final entry
+      in _pickupImages.entries) {
+    final type = entry.key;
+    final file = entry.value;
+
+    if (file == null) continue;
+
+    if (mounted) {
+      setState(() {
+        _uploadingPhotoType =
+            type;
+        _savingMessage =
+            'Uploading ${_photoTitle(type)}...';
+      });
+    }
+
+    final url =
+        await _uploadPickupImage(
+      type,
+      file,
+    );
+
+    _pickupImageUrls[type] =
+        url;
+  }
+
+  if (mounted) {
+    setState(() {
+      _uploadingPhotoType = null;
+    });
+  }
+}
+String _photoTitle(
+  String type,
+) {
+  switch (type) {
+    case 'front':
+      return 'front photo';
+
+    case 'rear':
+      return 'rear photo';
+
+    case 'left':
+      return 'left-side photo';
+
+    case 'right':
+      return 'right-side photo';
+
+    case 'interior':
+      return 'interior photo';
+
+    case 'extra':
+      return 'extra photo';
+
+    default:
+      return 'vehicle photo';
+  }
+}
 
   // ============================================================
   // HELPERS
@@ -419,10 +712,10 @@ final pickupAlreadyRecorded =
             const SizedBox(
               height: AppSpacing.lg,
             ),
-            _buildChecklist(
-              enabled:
-                  canRecordPickup,
-            ),
+           _buildVehiclePhotos(
+  enabled:
+      canRecordPickup,
+),
             const SizedBox(
               height: AppSpacing.lg,
             ),
@@ -1108,91 +1401,122 @@ final pickupAlreadyRecorded =
   // CHECKLIST
   // ============================================================
 
-  Widget _buildChecklist({
-    required bool enabled,
-  }) {
-    return _sectionCard(
-      title:
-          'Handover Checklist',
-      icon:
-          Icons.fact_check_outlined,
-      child:
-          Column(
-        children: [
-          _checkRow(
-            title:
-                'Vehicle condition checked',
-            subtitle:
-                'Exterior and interior condition reviewed before handover.',
-            value:
-                _conditionChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _conditionChecked =
-                        value;
-                  });
-                },
-          ),
-          const SizedBox(
-            height: 10,
-          ),
-          _checkRow(
-            title:
-                'Customer documents checked',
-            subtitle:
-                'License and ID information have been verified.',
-            value:
-                _customerDocumentsChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _customerDocumentsChecked =
-                        value;
-                  });
-                },
-          ),
-          const SizedBox(
-            height: 10,
-          ),
-          _checkRow(
-            title:
-                'Agreement and handover ready',
-            subtitle:
-                'Customer is ready to receive the vehicle.',
-            value:
-                _agreementChecked,
-            enabled:
-                enabled,
-            onChanged:
-                (value) {
-                  setState(() {
-                    _agreementChecked =
-                        value;
-                  });
-                },
-          ),
-        ],
-      ),
-    );
-  }
+ 
 
-  Widget _checkRow({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required bool enabled,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      padding:
-          const EdgeInsets.all(
-        12,
-      ),
+ Widget _buildVehiclePhotos({
+  required bool enabled,
+}) {
+  return _sectionCard(
+    title:
+        'Vehicle Photos',
+    icon:
+        Icons.camera_alt_outlined,
+    child:
+        Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Capture the vehicle condition before handing it over. Front, rear, both sides and interior are required.',
+          style: TextStyle(
+            fontSize: 10,
+            height: 1.4,
+            color:
+                AppColors.textSecondary,
+          ),
+        ),
+
+        const SizedBox(
+          height: 14,
+        ),
+
+        GridView.count(
+          shrinkWrap: true,
+          physics:
+              const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1.15,
+          children: [
+            _photoTile(
+              type: 'front',
+              title: 'Front',
+              icon: Icons
+                  .directions_car_filled_rounded,
+              enabled: enabled,
+            ),
+
+            _photoTile(
+              type: 'rear',
+              title: 'Rear',
+              icon: Icons
+                  .directions_car_filled_rounded,
+              enabled: enabled,
+            ),
+
+            _photoTile(
+              type: 'left',
+              title: 'Left Side',
+              icon: Icons
+                  .directions_car_rounded,
+              enabled: enabled,
+            ),
+
+            _photoTile(
+              type: 'right',
+              title: 'Right Side',
+              icon: Icons
+                  .directions_car_rounded,
+              enabled: enabled,
+            ),
+
+            _photoTile(
+              type: 'interior',
+              title: 'Interior',
+              icon: Icons
+                  .airline_seat_recline_normal_rounded,
+              enabled: enabled,
+            ),
+
+            _photoTile(
+              type: 'extra',
+              title: 'Extra',
+              icon: Icons
+                  .add_a_photo_rounded,
+              enabled: enabled,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+Widget _photoTile({
+  required String type,
+  required String title,
+  required IconData icon,
+  required bool enabled,
+}) {
+  final file =
+      _pickupImages[type];
+
+  final existingUrl =
+      _pickupImageUrls[type];
+
+  final hasImage =
+      file != null ||
+      (existingUrl != null &&
+          existingUrl.isNotEmpty);
+
+  final isUploading =
+      _uploadingPhotoType == type;
+
+  return GestureDetector(
+    onTap: enabled
+        ? () => _pickPickupImage(type)
+        : null,
+    child: Container(
       decoration:
           BoxDecoration(
         color:
@@ -1203,37 +1527,29 @@ final pickupAlreadyRecorded =
         ),
         border:
             Border.all(
-          color:
-              AppColors.border,
+          color: hasImage
+              ? AppColors.primary
+                  .withValues(
+                  alpha: 0.35,
+                )
+              : AppColors.border,
         ),
       ),
-      child:
-          Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Checkbox(
-            value:
-                value,
-            onChanged:
-                enabled
-                    ? (v) =>
-                        onChanged(
-                      v ?? false,
-                    )
-                    : null,
-          ),
-          const SizedBox(
-            width: 4,
-          ),
-          Expanded(
-            child:
-                Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+      clipBehavior:
+          Clip.antiAlias,
+      child: !hasImage
+          ? Column(
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
               children: [
+                Icon(
+                  icon,
+                  size: 28,
+                  color:
+                      AppColors.textSecondary,
+                ),
                 const SizedBox(
-                  height: 3,
+                  height: 8,
                 ),
                 Text(
                   title,
@@ -1247,25 +1563,110 @@ final pickupAlreadyRecorded =
                   ),
                 ),
                 const SizedBox(
-                  height: 3,
+                  height: 4,
                 ),
-                Text(
-                  subtitle,
-                  style:
-                      const TextStyle(
+                const Text(
+                  'Tap to add',
+                  style: TextStyle(
                     fontSize: 9,
-                    height: 1.35,
                     color:
                         AppColors.textSecondary,
                   ),
                 ),
               ],
+            )
+          : Stack(
+              fit:
+                  StackFit.expand,
+              children: [
+                if (file != null)
+                  Image.file(
+                    file,
+                    fit:
+                        BoxFit.cover,
+                  )
+                else
+                  Image.network(
+                    existingUrl!,
+                    fit:
+                        BoxFit.cover,
+                  ),
+
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child:
+                      Container(
+                    padding:
+                        const EdgeInsets
+                            .symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration:
+                        BoxDecoration(
+                      color: Colors.black
+                          .withValues(
+                        alpha: 0.65,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        8,
+                      ),
+                    ),
+                    child: Text(
+                      title,
+                      style:
+                          const TextStyle(
+                        color:
+                            Colors.white,
+                        fontSize: 9,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (isUploading)
+                  const Center(
+                    child:
+                        CircularProgressIndicator(
+                      color:
+                          Colors.white,
+                    ),
+                  ),
+
+                if (enabled &&
+                    !isUploading)
+                  Positioned(
+                    top: 7,
+                    right: 7,
+                    child:
+                        Container(
+                      width: 28,
+                      height: 28,
+                      decoration:
+                          const BoxDecoration(
+                        color:
+                            Colors.white,
+                        shape:
+                            BoxShape.circle,
+                      ),
+                      child:
+                          const Icon(
+                        Icons.edit_rounded,
+                        size: 15,
+                        color:
+                            AppColors.primary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
+}
 
   // ============================================================
   // SUMMARY
@@ -1457,43 +1858,65 @@ final enabled =
                 ),
               ),
             ),
+            child: _isSaving
+    ? Row(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
             child:
-                _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child:
-                            CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color:
-                              Colors.white,
-                        ),
-                      )
-                    : Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            label,
-                            style:
-                                const TextStyle(
-                              fontSize: 12,
-                              fontWeight:
-                                  FontWeight.w800,
-                            ),
-                          ),
-                          if (enabled) ...[
-                            const SizedBox(
-                              width: 7,
-                            ),
-                            const Icon(
-                              Icons
-                                  .arrow_forward_rounded,
-                              size: 18,
-                            ),
-                          ],
-                        ],
-                      ),
+                CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+
+          const SizedBox(
+            width: 10,
+          ),
+
+          Flexible(
+            child: Text(
+              _savingMessage,
+              overflow:
+                  TextOverflow.ellipsis,
+              style:
+                  const TextStyle(
+                fontSize: 12,
+                fontWeight:
+                    FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      )
+    : Row(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style:
+                const TextStyle(
+              fontSize: 12,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+
+          if (enabled) ...[
+            const SizedBox(
+              width: 7,
+            ),
+            const Icon(
+              Icons.arrow_forward_rounded,
+              size: 18,
+            ),
+          ],
+        ],
+      ),
           ),
         ),
       ),

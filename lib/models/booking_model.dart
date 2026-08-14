@@ -106,7 +106,8 @@ class BookingModel {
   final FuelLevel? fuelAtPickup;
 
   final FuelLevel? fuelAtReturn;
-
+final Map<String, String> pickupImages;
+final Map<String, String> returnImages;
   // ==========================================================
   // PRICING
   // ==========================================================
@@ -252,7 +253,8 @@ class BookingModel {
 
     this.fuelAtPickup,
     this.fuelAtReturn,
-
+this.pickupImages = const {},
+this.returnImages = const {},
     required this.dailyRate,
     this.hourlyRate,
 
@@ -647,6 +649,15 @@ class BookingModel {
           _fuelFromString(
             data['fuelAtReturn']?.toString(),
           ),
+          pickupImages:
+    Map<String, String>.from(
+  data['pickupImages'] ?? {},
+),
+
+returnImages:
+    Map<String, String>.from(
+  data['returnImages'] ?? {},
+),
 
       dailyRate:
           _toDouble(
@@ -902,6 +913,11 @@ class BookingModel {
               : fuelToString(
                   fuelAtReturn!,
                 ),
+        'pickupImages':
+    pickupImages,
+
+'returnImages':
+    returnImages,
 
       'dailyRate':
           dailyRate,
@@ -1111,7 +1127,8 @@ class BookingModel {
 
     FuelLevel? fuelAtPickup,
     FuelLevel? fuelAtReturn,
-
+    Map<String, String>? pickupImages,
+    Map<String, String>? returnImages,
     double? dailyRate,
     double? hourlyRate,
 
@@ -1236,7 +1253,13 @@ class BookingModel {
       fuelAtReturn:
           fuelAtReturn ??
               this.fuelAtReturn,
+pickupImages:
+    pickupImages ??
+        this.pickupImages,
 
+returnImages:
+    returnImages ??
+        this.returnImages,
       dailyRate:
           dailyRate ??
               this.dailyRate,
