@@ -8,6 +8,7 @@ import 'pickup_screen.dart';
 import 'return_screen.dart';
 import 'package:car_rental/models/payment_model.dart';
 import 'bookings_screen.dart';
+import 'package:car_rental/models/user_model.dart';
 class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
 
@@ -30,7 +31,6 @@ class _BookingDetailsScreenState
   bool _isRefreshing = false;
 bool _isEditing = false;
 bool _isSaving = false;
-
 final _formKey = GlobalKey<FormState>();
 
 late TextEditingController _customerNameController;
@@ -71,7 +71,7 @@ DateTime? _editReturnDateTime;
 
 DateTime? _editLicenseExpiryDate;
 List<PaymentModel> _payments = [];
-
+final Map<String, String> _userNameCache = {};
 bool _isLoadingPayments = false;
 bool _editTermsAccepted = false;
   
@@ -84,6 +84,8 @@ void initState() {
   _initializeEditControllers();
 
   _loadPayments();
+
+  _loadBookingUserNames();
 }
 @override
 void dispose() {
@@ -303,6 +305,55 @@ void _initializeEditControllers() {
       }
     }
   }
+  Future<void> _loadBookingUserNames() async {
+  final userIds = <String>{
+    _booking.createdBy,
+    _booking.confirmedBy ?? '',
+    _booking.startedBy ?? '',
+    _booking.completedBy ?? '',
+  }.where((id) => id.trim().isNotEmpty).toList();
+
+  if (userIds.isEmpty) return;
+
+  try {
+    final docs = await Future.wait(
+      userIds.map(
+        (uid) => _firestore
+            .collection('users')
+            .doc(uid)
+            .get(),
+      ),
+    );
+
+    if (!mounted) return;
+
+    for (final doc in docs) {
+      if (!doc.exists) continue;
+
+      final user =
+          UserModel.fromFirestore(doc);
+
+      _userNameCache[doc.id] =
+          user.fullName.trim().isEmpty
+              ? doc.id
+              : user.fullName.trim();
+    }
+
+    setState(() {});
+  } catch (e) {
+    debugPrint(
+      'Error loading booking user names: $e',
+    );
+  }
+}
+String _displayUserName(String? uid) {
+  if (uid == null || uid.trim().isEmpty) {
+    return '—';
+  }
+
+  return _userNameCache[uid.trim()] ??
+      'Loading...';
+}
   Future<void> _loadPayments() async {
   if (_isLoadingPayments) return;
 
@@ -3313,7 +3364,414 @@ Widget _buildEditDuration() {
   // ============================================================
   // CUSTOMER
   // ============================================================
+void _showCustomerDetails() {
+  final licenseUrl = _booking.licenseImageUrl;
+  final idProofUrl = _booking.idProofImageUrl;
 
+  showDialog(
+    context: context,
+    builder: (dialogContext) {
+      return Dialog(
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 24,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ======================================================
+              // HEADER
+              // ======================================================
+
+              Row(
+                children: [
+                  _avatar(_booking.customerName),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _booking.customerName,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _booking.customerPhone,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  IconButton(
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                    },
+                    icon: const Icon(
+                      Icons.close_rounded,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // ======================================================
+              // CUSTOMER DETAILS
+              // ======================================================
+
+              const Text(
+                'Customer Details',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              _customerDetailRow(
+                Icons.person_outline_rounded,
+                'Name',
+                _booking.customerName,
+              ),
+
+              _customerDetailRow(
+                Icons.phone_outlined,
+                'Phone',
+                _booking.customerPhone,
+              ),
+
+              if (_booking.licenseNumber != null &&
+                  _booking.licenseNumber!.trim().isNotEmpty)
+                _customerDetailRow(
+                  Icons.badge_outlined,
+                  'Driving License',
+                  _booking.licenseNumber!,
+                ),
+
+              if (_booking.idProofType != null &&
+                  _booking.idProofType!.trim().isNotEmpty)
+                _customerDetailRow(
+                  Icons.credit_card_outlined,
+                  'ID Proof Type',
+                  _booking.idProofType!,
+                ),
+
+              if (_booking.idProofNumber != null &&
+                  _booking.idProofNumber!.trim().isNotEmpty)
+                _customerDetailRow(
+                  Icons.numbers_rounded,
+                  'ID Proof Number',
+                  _booking.idProofNumber!,
+                ),
+
+              const SizedBox(height: 18),
+
+              // ======================================================
+              // DOCUMENT IMAGES
+              // ======================================================
+
+              const Text(
+                'Uploaded Documents',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              if (licenseUrl != null &&
+                  licenseUrl.trim().isNotEmpty)
+                _customerDocumentImage(
+                  title: 'Driving License',
+                  imageUrl: licenseUrl,
+                ),
+
+              if (licenseUrl != null &&
+                  licenseUrl.trim().isNotEmpty &&
+                  idProofUrl != null &&
+                  idProofUrl.trim().isNotEmpty)
+                const SizedBox(height: 14),
+
+              if (idProofUrl != null &&
+                  idProofUrl.trim().isNotEmpty)
+                _customerDocumentImage(
+                  title: _booking.idProofType?.trim().isNotEmpty == true
+                      ? _booking.idProofType!
+                      : 'ID Proof',
+                  imageUrl: idProofUrl,
+                ),
+
+              if ((licenseUrl == null ||
+                      licenseUrl.trim().isEmpty) &&
+                  (idProofUrl == null ||
+                      idProofUrl.trim().isEmpty))
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppColors.border,
+                    ),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(
+                        Icons.image_not_supported_outlined,
+                        size: 30,
+                        color: AppColors.textSecondary,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'No customer documents uploaded.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+Widget _customerDetailRow(
+  IconData icon,
+  String label,
+  String value,
+) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 9),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 17,
+          color: AppColors.primary,
+        ),
+
+        const SizedBox(width: 9),
+
+        SizedBox(
+          width: 105,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+Widget _customerDocumentImage({
+  required String title,
+  required String imageUrl,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: AppColors.textPrimary,
+        ),
+      ),
+
+      const SizedBox(height: 7),
+
+      GestureDetector(
+        onTap: () {
+          _showFullCustomerImage(
+            title: title,
+            imageUrl: imageUrl,
+          );
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            width: double.infinity,
+            height: 190,
+            color: AppColors.background,
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              loadingBuilder:
+                  (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                }
+
+                return const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                );
+              },
+              errorBuilder:
+                  (context, error, stackTrace) {
+                return const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.broken_image_outlined,
+                        size: 30,
+                        color: AppColors.textSecondary,
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Unable to load image',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+
+      const SizedBox(height: 4),
+
+      const Text(
+        'Tap image to view full size',
+        style: TextStyle(
+          fontSize: 8,
+          color: AppColors.textSecondary,
+        ),
+      ),
+    ],
+  );
+}
+void _showFullCustomerImage({
+  required String title,
+  required String imageUrl,
+}) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (dialogContext) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(10),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 4,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder:
+                      (context, error, stackTrace) {
+                    return const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white,
+                        size: 50,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                },
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                ),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 12,
+              bottom: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
   Widget _buildCustomerCard() {
   if (_isEditing) {
     return _sectionCard(
@@ -3337,9 +3795,13 @@ Widget _buildEditDuration() {
         ],
       ),
     );
+    
+
   }
 
-  return _sectionCard(
+ return GestureDetector(
+  onTap: _showCustomerDetails,
+  child: _sectionCard(
     title: 'Customer',
     icon: Icons.person_outline_rounded,
     child: Row(
@@ -3347,7 +3809,9 @@ Widget _buildEditDuration() {
         _avatar(
           _booking.customerName,
         ),
+
         const SizedBox(width: 12),
+
         Expanded(
           child: Column(
             crossAxisAlignment:
@@ -3357,24 +3821,24 @@ Widget _buildEditDuration() {
                 _booking.customerName,
                 style: const TextStyle(
                   fontSize: 14,
-                  fontWeight:
-                      FontWeight.w800,
-                  color:
-                      AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
                 ),
               ),
+
               const SizedBox(height: 4),
+
               Text(
                 _booking.customerPhone,
                 style: const TextStyle(
                   fontSize: 11,
-                  color:
-                      AppColors.textSecondary,
+                  color: AppColors.textSecondary,
                 ),
               ),
             ],
           ),
         ),
+
         _smallActionIcon(
           icon: Icons.phone_outlined,
           onTap: () => _showMessage(
@@ -3383,7 +3847,8 @@ Widget _buildEditDuration() {
         ),
       ],
     ),
-  );
+  ),
+);
 }
 
   Widget _avatar(
@@ -4926,55 +5391,64 @@ String _paymentStatusLabel(
   // ============================================================
 
   Widget _buildAuditCard() {
-    return _sectionCard(
-      title:
-          'Booking Information',
-      icon:
-          Icons.info_outline_rounded,
-      child:
-          _infoGrid([
-        _InfoItem(
-          'Booking ID',
-          _booking.id,
+  return _sectionCard(
+    title: 'Booking Information',
+    icon: Icons.info_outline_rounded,
+    child: _infoGrid([
+      _InfoItem(
+        'Booking ID',
+        _booking.id,
+      ),
+
+      _InfoItem(
+        'Business',
+        _booking.businessId,
+      ),
+
+      _InfoItem(
+        'Created',
+        _dateTime(
+          _booking.createdAt,
         ),
-        _InfoItem(
-          'Business',
-          _booking.businessId,
+      ),
+
+      _InfoItem(
+        'Updated',
+        _dateTime(
+          _booking.updatedAt,
         ),
-        _InfoItem(
-          'Created',
-          _dateTime(
-            _booking.createdAt,
-          ),
-        ),
-        _InfoItem(
-          'Updated',
-          _dateTime(
-            _booking.updatedAt,
-          ),
-        ),
-        _InfoItem(
-          'Created By',
+      ),
+
+      _InfoItem(
+        'Created By',
+        _displayUserName(
           _booking.createdBy,
         ),
-        _InfoItem(
-          'Confirmed By',
-          _booking.confirmedBy ??
-              '—',
+      ),
+
+      _InfoItem(
+        'Confirmed By',
+        _displayUserName(
+          _booking.confirmedBy,
         ),
-        _InfoItem(
-          'Started By',
-          _booking.startedBy ??
-              '—',
+      ),
+
+      _InfoItem(
+        'Started By',
+        _displayUserName(
+          _booking.startedBy,
         ),
-        _InfoItem(
-          'Completed By',
-          _booking.completedBy ??
-              '—',
+      ),
+
+      _InfoItem(
+        'Completed By',
+        _displayUserName(
+          _booking.completedBy,
         ),
-      ]),
-    );
-  }
+      ),
+    ]),
+  );
+}
 
   // ============================================================
   // COMMON CARDS

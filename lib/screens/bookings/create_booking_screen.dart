@@ -7,7 +7,10 @@ import '../../services/booking_service.dart';
 import 'create_booking_screen.dart';
 import '../../models/customer_model.dart';
 import 'booking_details_screen.dart';
+import 'dart:io';
 
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../../services/customer_service.dart';
 class CreateBookingScreen extends StatefulWidget {
   final VehicleModel vehicle;
@@ -102,12 +105,24 @@ final _rentalAmountController = TextEditingController();
   DateTime? _licenseExpiryDate;
 
   String? _idProofType;
+  String? _licenseImageUrl;
+String? _idProofImageUrl;
+
+File? _licenseImageFile;
+File? _idProofImageFile;
+
+bool _isUploadingLicense = false;
+bool _isUploadingIdProof = false;
+
+final ImagePicker _imagePicker = ImagePicker();
 double _calculatedTotalAmount = 0.0;
 
 double? _manualTotalAmount;
   bool _termsAccepted = false;
 
   bool _isSaving = false;
+  String _savingMessage = 'Creating Booking...';
+
 CustomerModel? _selectedCustomer;
 
 bool _isSearchingCustomer = false;
@@ -241,7 +256,14 @@ if (customer != null) {
 
     _licenseExpiryDate =
         customer.licenseExpiryDate;
+_licenseImageUrl =
+    customer.licenseImageUrl;
 
+_idProofImageUrl =
+    customer.idProofImageUrl;
+
+_licenseImageFile = null;
+_idProofImageFile = null;
     _showNewCustomerForm = false;
   });
 
@@ -287,7 +309,112 @@ _isSearchingCustomer = false;
   // ============================================================
   // BUILD
   // ============================================================
+Future<void> _pickDocumentImage({
+  required bool isLicense,
+}) async {
+  final source = await showModalBottomSheet<ImageSource>(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
+      ),
+    ),
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select Image',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
 
+              const SizedBox(height: 16),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.camera_alt_rounded,
+                ),
+                title: const Text('Take Photo'),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.camera,
+                  );
+                },
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                ),
+                title: const Text('Choose from Gallery'),
+                onTap: () {
+                  Navigator.pop(
+                    context,
+                    ImageSource.gallery,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  if (source == null) {
+    return;
+  }
+
+  final pickedFile =
+      await _imagePicker.pickImage(
+    source: source,
+    imageQuality: 80,
+    maxWidth: 1600,
+  );
+
+  if (pickedFile == null) {
+    return;
+  }
+
+  final file = File(pickedFile.path);
+
+  setState(() {
+    if (isLicense) {
+      _licenseImageFile = file;
+    } else {
+      _idProofImageFile = file;
+    }
+  });
+}
+Future<String?> _uploadDocumentImage({
+  required File file,
+  required String customerId,
+  required String documentType,
+}) async {
+  final ref = FirebaseStorage.instance
+      .ref()
+      .child('customers')
+      .child(customerId)
+      .child('documents')
+      .child('$documentType.jpg');
+
+  await ref.putFile(
+    file,
+    SettableMetadata(
+      contentType: 'image/jpeg',
+    ),
+  );
+
+  return await ref.getDownloadURL();
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1643,7 +1770,26 @@ _textField(
             icon:
                 Icons.credit_card_outlined,
           ),
+const SizedBox(
+  height: AppSpacing.md,
+),
 
+_buildDocumentImagePicker(
+  title: 'Driving Licence Image',
+  icon: Icons.badge_outlined,
+  imageFile: _licenseImageFile,
+  imageUrl: _licenseImageUrl,
+  isUploading: _isUploadingLicense,
+  onTap: () => _pickDocumentImage(
+    isLicense: true,
+  ),
+  onRemove: () {
+    setState(() {
+      _licenseImageFile = null;
+      _licenseImageUrl = null;
+    });
+  },
+),
           const SizedBox(
             height: AppSpacing.md,
           ),
@@ -1717,7 +1863,26 @@ _textField(
             icon:
                 Icons.numbers_outlined,
           ),
+const SizedBox(
+  height: AppSpacing.md,
+),
 
+_buildDocumentImagePicker(
+  title: 'ID Proof Image',
+  icon: Icons.contact_page_outlined,
+  imageFile: _idProofImageFile,
+  imageUrl: _idProofImageUrl,
+  isUploading: _isUploadingIdProof,
+  onTap: () => _pickDocumentImage(
+    isLicense: false,
+  ),
+  onRemove: () {
+    setState(() {
+      _idProofImageFile = null;
+      _idProofImageUrl = null;
+    });
+  },
+),
           const SizedBox(
             height: AppSpacing.md,
           ),
@@ -1736,7 +1901,168 @@ _textField(
   // ============================================================
   // LICENSE EXPIRY
   // ============================================================
+Widget _buildDocumentImagePicker({
+  required String title,
+  required IconData icon,
+  required File? imageFile,
+  required String? imageUrl,
+  required bool isUploading,
+  required VoidCallback onTap,
+  required VoidCallback onRemove,
+}) {
+  final hasImage =
+      imageFile != null ||
+      (imageUrl != null &&
+          imageUrl!.trim().isNotEmpty);
 
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(
+      AppSpacing.md,
+    ),
+    decoration: BoxDecoration(
+      color: AppColors.background,
+      borderRadius: BorderRadius.circular(
+        AppRadius.md,
+      ),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              icon,
+              size: 19,
+              color: AppColors.primary,
+            ),
+
+            const SizedBox(width: 8),
+
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+
+            if (hasImage)
+              IconButton(
+                onPressed: onRemove,
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: AppColors.danger,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: 10),
+
+        if (hasImage)
+          ClipRRect(
+            borderRadius:
+                BorderRadius.circular(
+              AppRadius.md,
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 180,
+              child: imageFile != null
+                  ? Image.file(
+                      imageFile,
+                      fit: BoxFit.cover,
+                    )
+                  : Image.network(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      loadingBuilder:
+                          (
+                        context,
+                        child,
+                        loadingProgress,
+                      ) {
+                        if (loadingProgress ==
+                            null) {
+                          return child;
+                        }
+
+                        return const Center(
+                          child:
+                              CircularProgressIndicator(),
+                        );
+                      },
+                    ),
+            ),
+          )
+        else
+          InkWell(
+            onTap: onTap,
+            borderRadius:
+                BorderRadius.circular(
+              AppRadius.md,
+            ),
+            child: Container(
+              width: double.infinity,
+              height: 120,
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(
+                  AppRadius.md,
+                ),
+                border: Border.all(
+                  color: AppColors.border,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons
+                        .add_a_photo_outlined,
+                    size: 30,
+                    color:
+                        AppColors.textSecondary,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  const Text(
+                    'Upload document image',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          FontWeight.w700,
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  const Text(
+                    'Camera or Gallery',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color:
+                          AppColors
+                              .textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
   Widget _buildLicenseExpiry() {
     return InkWell(
       borderRadius:
@@ -2074,10 +2400,10 @@ _textField(
                       Icons.check_circle_outline_rounded,
                     ),
           label: Text(
-            _isSaving
-                ? 'Creating Booking...'
-                : 'Confirm & Create Booking',
-          ),
+  _isSaving
+      ? _savingMessage
+      : 'Confirm & Create Booking',
+),
         ),
       ),
     ),
@@ -2088,8 +2414,11 @@ _textField(
   // SUBMIT BOOKING
   // ============================================================
 Future<CustomerModel?> _createNewCustomer() async {
-  final name = _customerNameController.text.trim();
-  final phone = _customerPhoneController.text.trim();
+  final name =
+      _customerNameController.text.trim();
+
+  final phone =
+      _customerPhoneController.text.trim();
 
   if (name.isEmpty) {
     _showError('Enter the customer name.');
@@ -2097,12 +2426,18 @@ Future<CustomerModel?> _createNewCustomer() async {
   }
 
   if (phone.length < 10) {
-    _showError('Enter a valid 10-digit phone number.');
+    _showError(
+      'Enter a valid 10-digit phone number.',
+    );
     return null;
   }
 
   try {
-    final customer =
+    // ------------------------------------------
+    // CREATE CUSTOMER FIRST
+    // ------------------------------------------
+
+    var customer =
         await _customerService.createCustomer(
       name: name,
       phone: phone,
@@ -2116,7 +2451,7 @@ Future<CustomerModel?> _createNewCustomer() async {
           _licenseExpiryDate,
 
       licenseImageUrl:
-          null,
+          _licenseImageUrl,
 
       idProofType:
           _idProofType,
@@ -2127,8 +2462,64 @@ Future<CustomerModel?> _createNewCustomer() async {
       ),
 
       idProofImageUrl:
-          null,
+          _idProofImageUrl,
     );
+
+    // ------------------------------------------
+    // UPLOAD LICENCE IMAGE
+    // ------------------------------------------
+
+    if (_licenseImageFile != null) {
+  if (mounted) {
+    setState(() {
+      _savingMessage =
+          'Uploading driving licence...';
+    });
+  }
+
+  final url =
+      await _uploadDocumentImage(
+        file: _licenseImageFile!,
+        customerId: customer.id,
+        documentType: 'license',
+      );
+
+      customer =
+          await _customerService.updateCustomer(
+        customerId: customer.id,
+        licenseImageUrl: url,
+      );
+
+      _licenseImageUrl = url;
+    }
+
+    // ------------------------------------------
+    // UPLOAD ID PROOF IMAGE
+    // ------------------------------------------
+
+    if (_idProofImageFile != null) {
+  if (mounted) {
+    setState(() {
+      _savingMessage =
+          'Uploading ID proof...';
+    });
+  }
+
+  final url =
+      await _uploadDocumentImage(
+        file: _idProofImageFile!,
+        customerId: customer.id,
+        documentType: 'id_proof',
+      );
+
+      customer =
+          await _customerService.updateCustomer(
+        customerId: customer.id,
+        idProofImageUrl: url,
+      );
+
+      _idProofImageUrl = url;
+    }
 
     if (!mounted) {
       return customer;
@@ -2191,7 +2582,10 @@ Future<CustomerModel?> _createNewCustomer() async {
   // ----------------------------------------------------------
 CustomerModel? customer =
     _selectedCustomer;
-
+setState(() {
+  _isSaving = true;
+  _savingMessage = 'Preparing booking...';
+});
 if (customer == null) {
   // No existing customer selected.
   // If the new customer form is visible,
@@ -2201,13 +2595,27 @@ if (customer == null) {
         await _createNewCustomer();
 
     if (customer == null) {
-      return;
-    }
+  if (mounted) {
+    setState(() {
+      _isSaving = false;
+      _savingMessage = 'Creating Booking...';
+    });
+  }
+  return;
+}
   } else {
     _showError(
-      'Please search for a customer first.',
-    );
-    return;
+  'Please search for a customer first.',
+);
+
+if (mounted) {
+  setState(() {
+    _isSaving = false;
+    _savingMessage = 'Creating Booking...';
+  });
+}
+
+return;
   }
 }
   // ----------------------------------------------------------
@@ -2257,10 +2665,7 @@ if (customer == null) {
   // START SAVING
   // ----------------------------------------------------------
 
-  setState(() {
-    _isSaving = true;
-  });
-
+ 
   try {
     // --------------------------------------------------------
     // RENTAL DURATION
@@ -2287,9 +2692,15 @@ if (customer == null) {
     // --------------------------------------------------------
     // CREATE BOOKING
     // --------------------------------------------------------
-
+if (mounted) {
+  setState(() {
+    _savingMessage =
+        'Creating booking...';
+  });
+}
     final booking =
         await BookingService.instance.createBooking(
+          
       // ------------------------------------------------------
       // CUSTOMER
       // ------------------------------------------------------
@@ -2436,7 +2847,10 @@ if (customer == null) {
           _licenseExpiryDate,
 
       licenseImageUrl:
-          null,
+    customer.licenseImageUrl,
+
+idProofImageUrl:
+    customer.idProofImageUrl,
 
       // ------------------------------------------------------
       // ID PROOF
@@ -2450,8 +2864,7 @@ if (customer == null) {
         _idProofNumberController,
       ),
 
-      idProofImageUrl:
-          null,
+      
 
       // ------------------------------------------------------
       // NOTES
